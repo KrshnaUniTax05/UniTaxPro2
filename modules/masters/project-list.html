@@ -1,20 +1,43 @@
 <div class="card border-0 shadow-sm">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center p-3">
-        <h5 class="fw-bold mb-0">
-            <i class="bi bi-folder me-2 text-primary"></i>Project Registry
-        </h5>
-        <button class="btn btn-primary btn-sm shadow-sm" onclick="ProjectManager.CreateNew()">
-            <i class="bi bi-plus-lg me-1"></i> New Project
-        </button>
+    <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center p-3 gap-2">
+        <div>
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-diagram-3-fill me-2 text-primary"></i>Profit Center Registry
+            </h5>
+            <small class="text-muted" id="projectCount">Loading profit centers...</small>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <!-- Search Filter -->
+            <div class="input-group input-group-sm" style="max-width: 250px;">
+                <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                <input type="text" id="pcSearchInput" class="form-control border-start-0" placeholder="Search code, name, manager..." oninput="ProjectManager.FilterList()">
+            </div>
+            <!-- Status Filter -->
+            <select id="pcStatusFilter" class="form-select form-select-sm" style="width: 140px;" onchange="ProjectManager.FilterList()">
+                <option value="ALL" selected>All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="UNDER_REVIEW">Under Review</option>
+                <option value="SUSPENDED">Suspended</option>
+            </select>
+            <button class="btn btn-erp-icon shadow-sm" onclick="ProjectManager.LoadList()" title="Refresh Registry">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+            <button class="btn btn-erp-icon btn-erp-icon-primary shadow-sm" onclick="ProjectManager.CreateNew()" title="Create New Profit Center">
+                <i class="bi bi-plus-lg"></i>
+            </button>
+        </div>
     </div>
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light text-muted small">
                 <tr>
-                    <th class="ps-4">Code</th>
-                    <th>Project Name</th>
-                    <th>Company</th>
-                    <th class="text-end pe-4">Actions</th>
+                    <th class="ps-4" style="width: 12%;">Center Code</th>
+                    <th style="width: 28%;">Profit Center & Unit</th>
+                    <th style="width: 18%;">Company Entity</th>
+                    <th style="width: 16%;">Controlling Manager</th>
+                    <th style="width: 12%;">Target / Budget</th>
+                    <th style="width: 8%;">Status</th>
+                    <th class="text-end pe-4" style="width: 6%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="projectListBody">
@@ -73,15 +96,37 @@ window.ProjectManager = {
     },
 
     // Render List from local data
-    RenderList(dataArray) {
+    FilterList() {
+        const q = (document.getElementById('pcSearchInput')?.value || '').toLowerCase().trim();
+        const status = document.getElementById('pcStatusFilter')?.value || 'ALL';
+        
+        let filtered = this.data;
+        if (status !== 'ALL') {
+            filtered = filtered.filter(r => (r.Status || 'ACTIVE').toUpperCase().includes(status));
+        }
+        if (q) {
+            filtered = filtered.filter(r => {
+                const code = String(r.ProjectCode || r.projectCode || '').toLowerCase();
+                const name = String(r.ProjectName || r.projectName || '').toLowerCase();
+                const comp = String(r.CompanyName || r.companyName || '').toLowerCase();
+                const mgr = String(r.ManagerName || r.managerName || '').toLowerCase();
+                const bu = String(r.BusinessUnit || r.businessUnit || '').toLowerCase();
+                return code.includes(q) || name.includes(q) || comp.includes(q) || mgr.includes(q) || bu.includes(q);
+            });
+        }
+        this.RenderList(filtered, false);
+    },
+
+    // Render List from local data
+    RenderList(dataArray, updateCount = true) {
         const tbody = document.getElementById('projectListBody');
         if (!tbody) return;
         
         tbody.innerHTML = '';
         if (!dataArray || dataArray.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-muted">No projects available.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted"><i class="bi bi-folder-x fs-4 d-block mb-1 text-muted"></i>No matching profit centers found.</td></tr>`;
             const countEl = document.getElementById('projectCount');
-            if (countEl) countEl.innerText = `(0 records)`;
+            if (countEl && updateCount) countEl.innerText = `(0 records)`;
             return;
         }
 
@@ -92,21 +137,37 @@ window.ProjectManager = {
             const projectCode = record.ProjectCode || record.projectCode || '-';
             const projectName = record.ProjectName || record.projectName || 'Unknown';
             const companyName = record.CompanyName || record.companyName || '-';
+            const businessUnit = record.BusinessUnit || record.businessUnit || record.Segment || 'Commercial Division';
+            const managerName = record.ManagerName || record.managerName || '-';
             
+            const budget = record.AnnualRevenueTarget || record.AnnualBudgetCap || 0;
+            const budgetStr = budget ? '₹' + parseFloat(budget).toLocaleString('en-IN') : '-';
+
+            const status = String(record.Status || 'ACTIVE').toUpperCase();
+            let statusBadge = '<span class="badge bg-success-subtle text-success border">ACTIVE</span>';
+            if (status.includes('REVIEW')) statusBadge = '<span class="badge bg-warning-subtle text-warning border">UNDER REVIEW</span>';
+            else if (status.includes('SUSPEND') || status.includes('DECOMMISSION')) statusBadge = '<span class="badge bg-danger-subtle text-danger border">INACTIVE</span>';
+
             tbody.innerHTML += `
-                <tr class="project-row" data-id="${id}">
-                    <td class="ps-4 fw-bold text-dark">${projectCode}</td>
-                    <td>${projectName}</td>
-                    <td class="text-muted small">${companyName}</td>
+                <tr class="project-row" data-id="${id}" style="cursor: pointer;" ondblclick="window.ProjectManager.TriggerEdit('${id}', '${encodedData}')">
+                    <td class="ps-4 fw-bold font-mono text-primary">${projectCode}</td>
+                    <td>
+                        <div class="fw-bold text-dark">${projectName}</div>
+                        <small class="text-muted">${businessUnit}</small>
+                    </td>
+                    <td class="text-dark small">${companyName}</td>
+                    <td class="small text-muted">${managerName}</td>
+                    <td class="font-mono small fw-semibold text-dark">${budgetStr}</td>
+                    <td>${statusBadge}</td>
                     <td class="text-end pe-4" style="white-space: nowrap;">
                         <button class="btn btn-sm btn-light text-primary border me-1" 
                                 onclick="window.ProjectManager.TriggerEdit('${id}', '${encodedData}')"
-                                title="Edit Project">
+                                title="Edit Profit Center">
                             <i class="bi bi-pencil"></i>
                         </button>
                         <button class="btn btn-sm btn-light text-danger border" 
                                 onclick="window.ProjectManager.Delete('${id}', this)"
-                                title="Delete Project">
+                                title="Delete Profit Center">
                             <i class="bi bi-trash"></i>
                         </button>
                     </td>
@@ -115,9 +176,8 @@ window.ProjectManager = {
         });
         
         const countEl = document.getElementById('projectCount');
-        if (countEl) countEl.innerText = `(${dataArray.length} records)`;
+        if (countEl && updateCount) countEl.innerText = `(${dataArray.length} records)`;
     },
-
     CreateNew() {
         sessionStorage.removeItem('EditContext_Projects');
         if (typeof App !== 'undefined' && App.Router) App.Router('masters/project-cw');
@@ -206,37 +266,6 @@ window.ProjectFormObserver = new MutationObserver((mutations) => {
     
     if (form && !form.dataset.hydrated) {
         form.dataset.hydrated = "true";
-
-        // --- CSS OVERFLOW FIXES ---
-        const container = form.closest('.content-viewport') || form.closest('.main-content') || form.closest('.page-content') || form.closest('.card-body') || form.closest('.tab-pane') || form.parentElement;
-        
-        if (container) {
-            container.style.overflow = 'visible !important';
-            container.style.overflowY = 'visible !important';
-            container.style.height = 'auto !important';
-            container.style.maxHeight = 'none !important';
-            container.style.minHeight = '100vh !important';
-        }
-        
-        let parent = form.parentElement;
-        while (parent && parent !== document.body) {
-            const computedStyle = window.getComputedStyle(parent);
-            if (computedStyle.overflow === 'hidden' || computedStyle.overflowY === 'hidden') {
-                parent.style.overflow = 'visible';
-                parent.style.overflowY = 'visible';
-            }
-            if (computedStyle.maxHeight && computedStyle.maxHeight !== 'none') {
-                parent.style.maxHeight = 'none';
-            }
-            parent = parent.parentElement;
-        }
-        
-        document.body.style.overflow = 'auto';
-        document.body.style.overflowY = 'auto';
-        document.body.style.height = 'auto';
-        document.documentElement.style.overflow = 'auto';
-        document.documentElement.style.overflowY = 'auto';
-        document.documentElement.style.height = 'auto';
 
         // --- ADD BACK BUTTON NEXT TO SUBMIT ---
         const submitBtn = form.querySelector('button[type="submit"]');

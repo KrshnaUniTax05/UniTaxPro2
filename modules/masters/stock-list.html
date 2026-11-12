@@ -7,12 +7,8 @@
             </h5>
         </div>
         <div>
-            <button class="btn btn-sm btn-outline-secondary me-1" onclick="StockManager.LoadList()" title="Refresh">
-                <i class="bi bi-arrow-clockwise"></i>
-            </button>
-            <button class="btn btn-primary btn-sm shadow-sm text-center" title="Create New Item" onclick="StockManager.CreateNew()">
-                <i class="bi bi-plus-lg me-1"></i>
-            </button>
+            <button class="btn btn-erp-icon me-1" onclick="StockManager.LoadList()" title="Refresh Inventory Registry"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="btn btn-erp-icon btn-erp-icon-primary text-center" title="Create New Stock Item" onclick="StockManager.CreateNew()"><i class="bi bi-plus-lg"></i></button>
         </div>
     </div>
     <div class="table-responsive">
@@ -57,14 +53,14 @@ window.StockManager = {
         }
         
         if (!skipFetch) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary me-2"></div><span class="text-muted">Loading stock items...</span></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary me-2"></div><span class="text-muted">Loading stock items...</span></td></tr>';
             try {
                 let rawResponse = await API.Fetch(`Masters/${this.DbSheet}`);
                 let fetchedData = rawResponse?.data || rawResponse?.result || rawResponse;
                 
                 if (!fetchedData || Object.keys(fetchedData).length === 0) {
                     this.data = [];
-                    return tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">
+                    return tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">
                         <i class="bi bi-box-seam fs-3 d-block mb-2"></i>
                         No stock items found. Create your first stock item!
                     </td></tr>`;
@@ -77,7 +73,7 @@ window.StockManager = {
                     
             } catch (error) {
                 console.error('Load Error:', error);
-                return tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger">
+                return tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">
                     <i class="bi bi-exclamation-triangle me-2"></i> Error loading stock items: ${error.message}
                 </td></tr>`;
             }
@@ -93,7 +89,7 @@ window.StockManager = {
         
         tbody.innerHTML = '';
         if (!dataArray || dataArray.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">No stock items available.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">No stock items available.</td></tr>`;
             const countEl = document.getElementById('stockCount');
             if (countEl) countEl.innerText = `(0 records)`;
             return;
@@ -104,21 +100,21 @@ window.StockManager = {
             const id = record.ID || record.id;
             const encodedData = encodeURIComponent(JSON.stringify(record));
             const itemCode = record.Stock_Code || record.stockCode || record.itemCode || '-';
-            const itemCompany = record.CompanyName || '-';
-            const itemunit = record.ItemUnit || '-';
-            const itemTax = record.ItemTax || '-';
+            const itemCompany = record.CompanyName || record['companyName & CompanyCode'] || '-';
+            const itemunit = record.ItemUnit || record.unit || '-';
+            const itemTax = record.ItemTax || record.taxRate || record.tax || '-';
             const itemName = record.itemName || record.ItemName || 'Unknown';
-            const hsn = record.itemHSN || record.hsn || '-';
-            const openingQty = parseFloat(record.openingQty || record.OpeningQty || 0);
+            const hsn = record.itemHSN || record.hsnCode || record.hsn || '-';
+            const openingQty = parseFloat(record.openingQty || record.openingQuantity || record.OpeningQty || 0);
             const openingVal = parseFloat(record.openingAmount || record.OpeningAmount || 0);
             
             tbody.innerHTML += `
                 <tr class="stock-row small" data-id="${id}">
-                    <td class="ps-4  ">${itemCode}</td>
-                    <td>${itemName}</td>
-                    <td class="text-muted text-start">${hsn}</td>
-                    <td class="text-muted text-start">${itemTax}</td>
+                    <td class="ps-4 font-mono fw-bold text-primary">${itemCode}</td>
+                    <td class="fw-semibold text-dark">${itemName}</td>
+                    <td class="text-muted text-start font-mono">${hsn}</td>
                     <td class="text-muted text-start">${itemunit}</td>
+                    <td class="text-muted text-start font-mono">${itemTax}${itemTax !== '-' && !String(itemTax).includes('%') ? '%' : ''}</td>
                     <td class="text-end text-muted">${openingQty}</td>
                     <td class="text-end text-muted">${openingVal > 0 ? '₹ ' + openingVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                     <td class="text-end pe-4" style="white-space: nowrap;">
@@ -127,7 +123,7 @@ window.StockManager = {
                                 title="Edit Stock Item">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="btn btn-sm btn-light text-danger border" 
+                        <button class="btn btn-sm btn-light text-primary border" 
                                 onclick="window.StockManager.Delete('${id}', this)"
                                 title="Delete Stock Item">
                             <i class="bi bi-trash"></i>
@@ -229,37 +225,6 @@ window.StockFormObserver = new MutationObserver((mutations) => {
     
     if (form && !form.dataset.hydrated) {
         form.dataset.hydrated = "true";
-
-        // --- CSS OVERFLOW FIXES ---
-        const container = form.closest('.content-viewport') || form.closest('.main-content') || form.closest('.page-content') || form.closest('.card-body') || form.closest('.tab-pane') || form.parentElement;
-        
-        if (container) {
-            container.style.overflow = 'visible !important';
-            container.style.overflowY = 'visible !important';
-            container.style.height = 'auto !important';
-            container.style.maxHeight = 'none !important';
-            container.style.minHeight = '100vh !important';
-        }
-        
-        let parent = form.parentElement;
-        while (parent && parent !== document.body) {
-            const computedStyle = window.getComputedStyle(parent);
-            if (computedStyle.overflow === 'hidden' || computedStyle.overflowY === 'hidden') {
-                parent.style.overflow = 'visible';
-                parent.style.overflowY = 'visible';
-            }
-            if (computedStyle.maxHeight && computedStyle.maxHeight !== 'none') {
-                parent.style.maxHeight = 'none';
-            }
-            parent = parent.parentElement;
-        }
-        
-        document.body.style.overflow = 'auto';
-        document.body.style.overflowY = 'auto';
-        document.body.style.height = 'auto';
-        document.documentElement.style.overflow = 'auto';
-        document.documentElement.style.overflowY = 'auto';
-        document.documentElement.style.height = 'auto';
 
         // --- ADD BACK BUTTON NEXT TO SUBMIT ---
         const submitBtn = form.querySelector('button[type="submit"]');
@@ -402,16 +367,28 @@ window.StockFormObserver = new MutationObserver((mutations) => {
                     // ===========================
                     // EXECUTE MASTER WORK
                     // ===========================
+                    let opSuccess = false;
                     if (recordId) {
-                        await API.SecureMasterUpdate(window.StockManager.DbSheet, recordId, payload);
-                        if (App?.UI?.Notify) App.UI.Notify("Success", "Stock Item Updated Successfully", "success");
+                        const upRes = await API.SecureMasterUpdate(window.StockManager.DbSheet, recordId, payload);
+                        opSuccess = upRes !== false;
+                        if (opSuccess && App?.UI?.Notify) App.UI.Notify("Success", "Stock Item Updated Successfully", "success");
                     } else {
                         payload.created_at = payload.updated_at;
-                        await API.SaveMaster(`${window.StockManager.DbSheet}`, payload);
-                        if (App?.UI?.Notify) App.UI.Notify("Success", "Stock Item Created Successfully", "success");
+                        const saveRes = await API.SaveMaster(`${window.StockManager.DbSheet}`, payload);
+                        opSuccess = saveRes !== false;
+                        if (opSuccess && App?.UI?.Notify) App.UI.Notify("Success", "Stock Item Created Successfully", "success");
                     }
 
-                    window.StockManager.LoadList();
+                    if (opSuccess) {
+                        if (window.API && window.API._MasterCache) {
+                            delete window.API._MasterCache['Stock'];
+                            delete window.API._MasterCache['stock'];
+                        }
+                        await window.StockManager.LoadList();
+                    } else {
+                        submitBtn.innerHTML = originalHtml;
+                        submitBtn.disabled = false;
+                    }
 
                 } catch (error) {
                     console.error("Save Error:", error);

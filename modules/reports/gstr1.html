@@ -1,9 +1,6 @@
 <head>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
-<style>
-    
-</style>
 <div class="animate-in container-fluid ">
     
     <!-- TOP ACTION BAR -->
@@ -19,8 +16,14 @@
                 <input type="date" id="gstrFromDate" class="form-control form-control-sm border-0 bg-light" onchange="GSTR1App.Generate()">
                 <span class="text-muted small fw-bold">TO</span>
                 <input type="date" id="gstrToDate" class="form-control form-control-sm border-0 bg-light" onchange="GSTR1App.Generate()">
-                <button class="btn btn-success btn-sm px-3 fw-bold shadow-sm" onclick="GSTR1App.Generate()">
-                    <i class="bi bi-arrow-clockwise me-1"></i> 
+                <button class="btn btn-success btn-sm px-2 fw-bold shadow-sm" onclick="GSTR1App.Generate()" title="Refresh Summary">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button class="btn btn-outline-success btn-sm px-2 fw-bold shadow-sm" onclick="GSTR1App.ExportToGSTExcel()" title="Export GSTR-1 to Excel (All Sub-sheets)">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Excel
+                </button>
+                <button class="btn btn-outline-secondary btn-sm px-2 fw-bold shadow-sm" onclick="window.print()" title="Print Summary">
+                    <i class="bi bi-printer me-1"></i> Print
                 </button>
             </div>
         </div>
@@ -65,8 +68,8 @@
     <div class="card-header bg-white border-0 pt-4 px-4 pb-0" id="detailSectionTitle">
         </div>
 
-    <div class="card-body p-0" style="height:350px   !important ;overflow-y: scroll !important;" >
-        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
             <table class="table table-hover align-middle mb-0 text-nowrap">
                 <thead class="sticky-top" style="background-color: #f8f9fa; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
                     <tr class="text-secondary small text-uppercase" style="letter-spacing: 0.5px; font-weight: 600;">
@@ -96,20 +99,6 @@
 </div>
 
 <!-- CSS Architecture for Accounting Look & Feel -->
-<style>
-    /* .gstr-master-table th, .gstr-master-table td { padding: 0.55rem 0.65rem !important; vertical-align: middle; }
-    .gstr-row-clickable { cursor: pointer; transition: background 0.15s ease; }
-    .gstr-row-clickable:hover { background-color: rgba(25, 135, 84, 0.06) !important; }
-    .gstr-subhead-row { background-color: #fafbfc; font-weight: 500; }
-    .fw-mono { font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; } */
-
-    .gstr-master-table td{
-        padding: 05px 10px !important;
-    }
-    .gstr-master-table{
-        font-size: 16px;
-    }
-</style>
 
 <script>
 (function() {
@@ -178,7 +167,11 @@
                 await Promise.allSettled(endpoints.map(type => 
                     API.Fetch(`Transactions/${type}`).then(res => {
                         if (res) Object.entries(res).forEach(([k, vch]) => {
-                            datasetPool.push({ ...vch, _key: k, _formType: type });
+                            const isDeleted = vch.is_deleted === true || (vch.header && vch.header.is_deleted === true) || vch.status === 'DELETED' || (vch.header && vch.header.status === 'DELETED');
+                            const isDraftOrPending = vch.status === 'DRAFT' || vch.status === 'PENDING_APPROVAL' || (vch.header && (vch.header.status === 'DRAFT' || vch.header.status === 'PENDING_APPROVAL'));
+                            if (!isDeleted && !isDraftOrPending) {
+                                datasetPool.push({ ...vch, _key: k, _formType: type });
+                            }
                         });
                     }).catch(() => {})
                 ));
@@ -676,9 +669,9 @@
             }));
 
             if (typeof App !== 'undefined' && App.Router) {
-                App.Router('transactions/edit');
+                App.Router(`transactions/edit?type=${encodeURIComponent(formType)}&key=${encodeURIComponent(databaseKey)}`);
             } else {
-                console.log(`Routing context requested: Type -> ${formType}, Key -> ${databaseKey}`);
+                window.location.hash = `#/transactions/edit?type=${encodeURIComponent(formType)}&key=${encodeURIComponent(databaseKey)}`;
             }
         },
 

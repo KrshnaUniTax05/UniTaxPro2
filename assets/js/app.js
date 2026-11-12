@@ -1,265 +1,373 @@
 /**
- * UNITAX PRO - Core Application Brain (Final Stable)
- * Handles: Routing, Logic Injection, Auto-Fill, Uniqueness, and UI Themes
+ * UNITAX PRO - Core Application Brain (Enterprise Edition)
+ * Orchestrates: State, Lifecycle, Router, RBAC, Error Boundary, Notification & Theme
  */
-// console.log('App.js initialized')
+
 const App = {
-   State: {
+    State: {
         userId: localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid'),
+        workspaceUserId: localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid'),
         currentuserId: localStorage.getItem('userloginid'),
-        userName: localStorage.getItem('userName'),
-        userRole: localStorage.getItem('userrole'),
-        workspaceId: localStorage.getItem('workspaceId'),
+        userName: localStorage.getItem('userName') || 'User',
+        userRole: localStorage.getItem('userrole') || 'operator',
+        workspaceId: localStorage.getItem('workspaceId') || '',
         activeModule: null,
         isDarkMode: localStorage.getItem('darkMode') === 'enabled'
     },
-    
-    async GetPersistentData(path, stateKey) {
-    // 1. Check if already in memory
-    if (this.State[stateKey]) {
-        console.log(`[Cache Hit] Using cached data for: ${stateKey}`);
-        return this.State[stateKey];
-    }
 
-    // 2. DEBUG: Log the path we are trying to fetch
-    console.log(`[Database Fetch] Attempting to fetch path: ${path}`);
-    
-    try {
-        const data = await API.Fetch(path);
-        
-        // 3. DEBUG: Check if response is empty
-        if (!data) {
-            console.error(`[Database Error] No data found at path: ${path}. Verify the userId and node structure.`);
-            return null;
-        }
+    _isInitialized: false,
 
-        console.log(`[Database Success] Successfully cached ${stateKey}`);
-        this.State[stateKey] = data;
-        return data;
-    } catch (err) {
-        console.error(`[Database Error] Exception while fetching ${path}:`, err);
-        return null;
-    }
-},
-
-
-
-
-
+    /**
+     * INITIALIZE APPLICATION LIFECYCLE
+     */
     async Init() {
-    try {
-        // 1. Auth Guard
-        if (!this.State.userId) { 
-            window.location.href = 'login.html'; 
-            return; 
-        }
-        
-        // 2. Initialize Sub-Systems (Sequential dependencies)
-        API.Init();
-        this.UI.InitTheme();
-        this.UI.StartClock();
-        this.BindGlobalEvents();
-        BrowserNotificationEngine.Init()
-        // AccessTracker.Init()
+        if (this._isInitialized) return;
+        this._isInitialized = true;
 
-        // 🎯 FIX: Wrap notification engines in a safe block 
-        // We don't necessarily need to 'await' these unless they perform critical DB syncs,
-        // but we ensure they are called safely.
         try {
-            NotificationEngine.Init();
-            BrowserNotificationEngine.Init();
-        } catch (notifErr) {
-            console.error("⚠️ [App] Notification Engine failed to start:", notifErr);
-        }
+            // 1. Synchronize State from Local Storage
+            this.State.userId = localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid');
+            this.State.workspaceUserId = localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid');
+            this.State.currentuserId = localStorage.getItem('userloginid');
+            this.State.userName = localStorage.getItem('userName') || 'User';
+            this.State.userRole = localStorage.getItem('userrole') || 'operator';
+            this.State.workspaceId = localStorage.getItem('workspaceId') || '';
 
-        // 3. Set Header Displays
-        // Safely check if elements exist before setting innerText
+            // 2. Authentication Guard
+            if (!this.State.userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // 3. Global Error Boundary
+            this.InitErrorBoundary();
+
+            // 4. Sub-Systems Initialization
+            if (window.API && typeof API.Init === 'function') {
+                API.Init();
+            }
+
+            // 4b. Live RBAC permission synchronisation + suspension guard listeners
+            try {
+                if (window.UniTaxAuth && typeof UniTaxAuth.SyncLivePermissions === 'function') {
+                    UniTaxAuth.SyncLivePermissions().then(() => {
+                        try { this.UpdateHeaderDisplays(); } catch (e) {}
+                    }).catch(() => {});
+                }
+                if (window.UniTaxOperations && typeof UniTaxOperations.InstallRealtimeSync === 'function') {
+                    UniTaxOperations.InstallRealtimeSync();
+                }
+            } catch (syncErr) {
+                console.warn('[App] Live permission / operations sync non-critical error:', syncErr);
+            }
+
+
+            this.HideStartupLoader();
+            this.UI.InitTheme();
+            this.UI.StartClock();
+            this.BindGlobalEvents();
+
+            // 5. Update Header Displays
+            this.UpdateHeaderDisplays();
+
+            // 6. Initialize Safe Notification Engines
+            try {
+                if (typeof NotificationEngine !== 'undefined' && NotificationEngine.Init) {
+                    NotificationEngine.Init();
+                }
+                if (typeof BrowserNotificationEngine !== 'undefined' && BrowserNotificationEngine.Init) {
+                    BrowserNotificationEngine.Init();
+                }
+            } catch (notifErr) {
+                console.warn("Notification system non-critical error:", notifErr);
+            }
+
+            // 7. Router Initialization
+            if (window.UniTaxRouter && typeof UniTaxRouter.Init === 'function') {
+                UniTaxRouter.Init();
+            }
+
+           
+
+        } catch (criticalErr) {
+            console.error("Critical Application Startup Failure:", criticalErr);
+            this.UI.Notify('Startup Error', 'System initialization error. Please refresh.', 'danger');
+        } finally {
+            this.HideStartupLoader();
+        }
+    },
+
+    /**
+     * Safely hide & purge full-screen startup loader
+     */
+    HideStartupLoader() {
+        const loader = document.getElementById('app-loader');
+        if (loader) {
+            loader.style.transition = 'opacity 0.25s ease-out';
+            loader.style.opacity = '0';
+            loader.style.pointerEvents = 'none';
+            setTimeout(() => {
+                loader.classList.remove('d-flex');
+                loader.classList.add('d-none');
+                loader.style.setProperty('display', 'none', 'important');
+                if (loader.parentNode) {
+                    loader.parentNode.removeChild(loader);
+                }
+            }, 250);
+        }
+    },
+
+    /**
+     * GLOBAL ERROR BOUNDARY (Phase 11)
+     * Catches uncaught runtime exceptions and unhandled promise rejections
+     */
+    InitErrorBoundary() {
+        window.onerror = (message, source, lineno, colno, error) => {
+            console.warn("[Global Error Boundary]", { message, source, lineno, colno, error });
+            // Suppress non-fatal intrusive toast notifications during background operations
+            return false; // Let browser keep diagnostic logs in developer console
+        };
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.warn("[Unhandled Promise Rejection]", event.reason);
+            // Suppress non-fatal intrusive toast notifications during background async operations
+        });
+    },
+
+    /**
+     * Update Navigation Header Displays
+     */
+    UpdateHeaderDisplays() {
         const nameEl = document.getElementById('usernameDisplay');
         const roleEl = document.getElementById('main_role_show');
-        const designation = document.getElementById('main_role_show');
-        const userIdEl = document.getElementById('main_userid_show');
-        const realuser = document.getElementById('realUser');
+        const userInitial = document.getElementById('userInitial');
+        const userNameDisplay = document.getElementById('userNameDisplay');
+        const userEmailDisplay = document.getElementById('userEmailDisplay');
+        const realUserEl = document.getElementById('realUser');
 
-        if(nameEl) nameEl.innerText = this.State.userName || "User";
-        if(designation) designation.innerText = localStorage.getItem('designation')
-        if(realuser) realuser.innerText =`ID: ${this.State.currentuserId} `;
-        // if(userIdEl) userIdEl.innerText = `ID: ${this.State.workspaceId} `;
-        App.displayWrokspaceName()
-        // 4. Handle Routing
-        const pinnedModule = localStorage.getItem('pinnedModule');
-        if (pinnedModule) {
-            // console.log(`📡 [App] Loading pinned module: ${pinnedModule}`);
-            await this.Router(pinnedModule);
-        } else {
-            await this.Router('dashboard');
-        }
+        const userName = this.State.userName || 'User';
+        const userRole = this.State.userRole || 'Operator';
+        const userEmail = localStorage.getItem('useremail_we') || `${this.State.currentuserId}@unitax.local`;
 
-    } catch (err) {
-        console.error("🔴 [App] Critical Startup Failure:", err);
-    } finally {
-        // 5. Always remove loader, even if something fails
-        const loader = document.getElementById('app-loader');
-        if(loader) loader.style.display = 'none';
-    }
-},
+        if (nameEl) nameEl.innerText = userName;
+        if (roleEl) roleEl.innerText = `Role: ${userRole}`;
+        if (userInitial) userInitial.innerText = userName.charAt(0).toUpperCase();
+        if (userNameDisplay) userNameDisplay.innerText = userName;
+        if (userEmailDisplay) userEmailDisplay.innerText = userName;
+        if (realUserEl) realUserEl.innerText = `ID: ${this.State.currentuserId}`;
 
+        this.DisplayWorkspaceName();
 
+        // Update sidebar and menu links visual indication based on RBAC permissions
+        if (window.UniTaxAuth && typeof UniTaxAuth.CanAccessModule === 'function') {
+            const roleStr = (this.State.userRole || localStorage.getItem('userrole') || 'operator').toLowerCase();
+            const isAdmin = ['administrator', 'super_administrator', 'co_useradmin', 'co_admin', 'workspaceowner'].includes(roleStr) || localStorage.getItem('masterControl') === 'administration';
 
-    Search: {
-        Registry: {
-            "dash": "dashboard",
-            "comp": "masters/company-cw",
-            "ledger": "masters/ledger-cw",
-            "stock": "masters/stock-cw",
-            "project": "masters/project-cw",
-            "sales": "transactions/sales-inv",
-            "pur": "transactions/purchase-inv",
-            "bank": "transactions/receipt-pay",
-            "gl": "reports/gl-statement"
-        },
+            // Query all sidebar and navigation links across desktop and mobile
+            document.querySelectorAll('.sidebar-desktop [data-route], #sidebarOffcanvas [data-route], [data-route]').forEach(link => {
+                const route = link.dataset.route || link.dataset.module;
+                if (!route) return;
 
-        HandleSearch(query) {
-            const input = query.toLowerCase().trim();
-            if (!input) return;
+                // Specific hard restriction for User Admin Control Panel: hide completely for non-admins
+                if (route.includes('useradmin')) {
+                    link.style.display = isAdmin ? 'flex' : 'none';
+                    return;
+                }
 
-            const registryList = document.getElementById('moduleRegistry');
-            const allOptions = registryList ? Array.from(registryList.querySelectorAll('option')).map(o => o.value) : [];
-            const aliasPath = this.Registry[input];
-
-            if (allOptions.includes(input)) {
-                App.Router(input);
-                this.Clear();
-            } else if (aliasPath) {
-                App.Router(aliasPath);
-                this.Clear();
-            } else {
-                App.UI.Notify('Navigation', `Module "${input}" not found.`, 'warning');
-            }
-        },
-
-        Clear() {
-            const s = document.getElementById('globalSearch');
-            if (s) { s.value = ""; s.blur(); }
-        }
-    },
-    /**
-     * AJAX ROUTER (Force Script Execution)
-     * This ensures JS inside modules like sales-inv.html actually runs.
-     */
-async Router(path) {
-        // 1. 🔥 NEW: Save the currently active route to localStorage before navigating away
-        // It checks State first, falls back to the URL hash, or defaults to a safe string.
-        const currentRoute = (this.State && this.State.activeModule) 
-            || window.location.hash.replace('#', '') 
-            || 'dashboard';
-            
-        localStorage.setItem('PreviousPath', currentRoute);
-
-        const viewport = document.getElementById('main-content');
-        const loader = document.getElementById('section-loader');
-        
-        if(loader) loader.style.display = 'block';
-        viewport.style.opacity = '0.5';
-
-        // 2. Separate the base module name from the URL parameters
-        const [basePath, queryString] = path.split('?');
-
-        try {
-            // Fetch using only the base path so the network request doesn't fail
-            const res = await fetch(`modules/${basePath}.html`);
-            if(!res.ok) throw new Error("Module not found");
-            const html = await res.text();
-            
-            // 3. Inject HTML content
-            viewport.innerHTML = html;
-            this.State.activeModule = basePath;
-
-            // 4. 🔥 THE SCRIPT FIX: Manually find and execute scripts in the injected HTML
-            const scripts = viewport.querySelectorAll("script");
-            scripts.forEach(oldScript => {
-                const newScript = document.createElement("script");
-                Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-                newScript.appendChild(document.createTextNode(oldScript.innerHTML));
-                oldScript.parentNode.replaceChild(newScript, oldScript);
+                if (!UniTaxAuth.CanAccessModule(route)) {
+                    link.classList.add('opacity-50');
+                    if (!link.querySelector('.bi-lock-fill')) {
+                        const lock = document.createElement('i');
+                        lock.className = 'bi bi-lock-fill text-muted ms-auto small';
+                        lock.style.fontSize = '10px';
+                        link.appendChild(lock);
+                    }
+                } else {
+                    link.classList.remove('opacity-50');
+                    const existingLock = link.querySelector('.bi-lock-fill');
+                    if (existingLock) existingLock.remove();
+                }
             });
 
-            // 5. Initialize ERP Logic (Lookups, Uniqueness, etc.)
-            this.InitERPLogic(basePath);
-
-            // 6. 🔥 DEEP LINK HANDLER: If an ID was passed, open the document
-            if (queryString) {
-                const urlParams = new URLSearchParams(queryString);
-                const docId = urlParams.get('id');
-                
-                if (docId) {
-                    // Use a short timeout to ensure the module's scripts and Firebase have finished booting
-                    setTimeout(() => {
-                        if (typeof window.loadApprovalDoc === 'function') {
-                            // Ensure the view switches to the document viewer
-                            const tabToggle = document.querySelector('[data-bs-target="#inbox-view"]');
-                            if (tabToggle) tabToggle.click();
-                            
-                            window.loadApprovalDoc(docId);
-                        }
-                    }, 500); 
+            // Also hide Admin Control from top-right user menu if not admin
+            document.querySelectorAll('a[href*="useradmincontrolpanel"]').forEach(link => {
+                if (link.closest('li')) {
+                    link.closest('li').style.display = isAdmin ? 'block' : 'none';
                 }
-            }
-
-        } catch (e) {
-            console.error("Router Failure:", e);
-            viewport.innerHTML = `<div class="alert alert-danger m-3">Critical Error: Module [${basePath}] failed to load.</div>`;
-        } finally {
-            if(loader) loader.style.display = 'none';
-            viewport.style.opacity = '1';
-        }
-    },
-
-    async goBack() {
-        const previousPath = localStorage.getItem('PreviousPath') || 'dashboard';
-        if (typeof App !== 'undefined' && App.Router) {
-            App.Router(previousPath);
+            });
         }
     },
 
     /**
-     * ERP MODULE INITIALIZER
-     * Binds all advanced ERP behaviors to the current module form.
+     * Display Workspace Anchor / Organization Name
      */
-    async InitERPLogic(path) {
-        const form = document.querySelector('form');
+    DisplayWorkspaceName(elId = 'main_userid_show') {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const wsId = this.State.userId;
+        if (!wsId) {
+            el.innerText = 'Guest';
+            return;
+        }
+
+        if (typeof firebase !== 'undefined' && firebase.database) {
+            firebase.database().ref(`Users/${wsId}/workspace/WorkspaceSettings`).once('value')
+                .then(snap => {
+                    const wsData = snap.val() || {};
+                    const name = wsData.workspaceName || wsData.companyName;
+                    el.innerText = name ? `Org: ${name}` : `WS: #${wsId.substring(0, 10)}`;
+                    if (wsData.postingPeriod) {
+                        localStorage.setItem('workspacePostingPeriod', JSON.stringify(wsData.postingPeriod));
+                    }
+                })
+                .catch(() => {
+                    el.innerText = `WS: #${wsId.substring(0, 10)}`;
+                });
+        } else {
+            el.innerText = `WS: #${wsId.substring(0, 10)}`;
+        }
+    },
+
+    /**
+     * Central Router Alias for backward compatibility
+     */
+    Router(path) {
+        if (window.UniTaxRouter && typeof UniTaxRouter.Navigate === 'function') {
+            UniTaxRouter.Navigate(path);
+        }
+    },
+
+    goBack() {
+        const prev = localStorage.getItem('PreviousPath') || 'dashboard';
+        this.Router(prev);
+    },
+
+    /**
+     * ERP Form & Grid Initializer
+     */
+    async InitERPLogic(modulePath) {
+        if (!modulePath) return;
+        const cleanMod = modulePath.toLowerCase().replace(/^\/+/, '');
+
+        // Exclude overview dashboard, utility panels, user admin panel, and settings from ERP voucher post logic
+        if (cleanMod === 'dashboard' || cleanMod.startsWith('utilities/') || cleanMod.startsWith('settings') || cleanMod.startsWith('help')) {
+            return;
+        }
+
+        const form = document.querySelector('#main-content form');
         if (!form) return;
 
-        // 1. Populate Datalists immediately from Firebase (Masters)
-        await API.PopulateAllDatalists(form);
+        // Prevent duplicate listener attachments and event multiplication
+        if (form._erpLogicInitialized && form._erpCurrentModule === cleanMod) {
+            return;
+        }
+        form._erpLogicInitialized = true;
+        form._erpCurrentModule = cleanMod;
 
-        // 2. Debounced Uniqueness Check (e.g., prevents duplicate CompanyCode)
-        form.querySelectorAll('[data-check-unique="true"]').forEach(input => {
-            input.addEventListener('input', Utils.Debounce(async (e) => {
-                const val = e.target.value.trim();
-                const sheet = e.target.dataset.sheet_name;
-                const col = e.target.dataset.column_name;
-                const saveBtn = form.querySelector('[type="submit"]');
+        // Skip non-ERP forms that have their own custom handlers
+        if (form.classList.contains('nosubmit') || form.id === 'provisionForm' || form.id === 'editUserForm' || form.id === 'wsSettingsForm') {
+            return;
+        }
 
-                if (val.length < 3) return;
+        // 1. Populate Datalists for Lookups
+        if (window.API && API.PopulateAllDatalists) {
+            await API.PopulateAllDatalists(form);
+        }
 
-                e.target.style.borderRight = "3px solid #ffc107"; // Yellow: Checking...
+        // 1b. Field-Level Authorization & Form Pre-fill Enforcement
+        if (window.UniTaxAuth && typeof UniTaxAuth.GetEffectivePermissions === 'function') {
+            const perms = UniTaxAuth.GetEffectivePermissions();
+            const rules = perms.fieldRestrictions || [];
+            const curMod = (modulePath || (window.UniTaxRouter && UniTaxRouter.currentRoute) || '').toLowerCase();
 
-                const isDuplicate = await API.CheckUniqueness(sheet, col, val);
-                
-                e.target.classList.toggle('is-invalid', isDuplicate);
-                e.target.classList.toggle('is-valid', !isDuplicate);
-                e.target.style.borderRight = isDuplicate ? "3px solid #dc3545" : "3px solid #198754";
-                
-                if(saveBtn) saveBtn.disabled = isDuplicate;
-                if(isDuplicate) this.UI.Notify('Validation', `Value "${val}" already exists in ${sheet}`, 'danger');
-            }, 500));
-        });
+            rules.forEach(rule => {
+                if (!rule || !rule.field) return;
+                const ruleMod = (rule.module || 'ALL').trim().toLowerCase();
+                if (ruleMod !== 'all' && !curMod.includes(ruleMod) && !ruleMod.includes(curMod)) return;
 
-        // 3. Auto-Lookup & Calculation Observer
+                const fieldName = rule.field.trim();
+                const accessMode = (rule.accessMode || 'EDITABLE').toUpperCase();
+                const condition = (rule.condition || 'EQUALS').toUpperCase();
+                const val = (rule.value || '').trim();
+
+                const targets = form.querySelectorAll(`[name="${fieldName}"], [id="${fieldName}"], [data-field="${fieldName}"]`);
+                targets.forEach(el => {
+                    // Field visibility
+                    if (accessMode === 'HIDDEN') {
+                        const parentCol = el.closest('.col, .col-1, .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11, .col-12, .mb-3, .form-group');
+                        if (parentCol) parentCol.style.display = 'none';
+                        else el.style.display = 'none';
+                    } else if (accessMode === 'LOCKED_READONLY') {
+                        el.readOnly = true;
+                        if (el.tagName === 'SELECT') el.disabled = true;
+                        el.classList.add('bg-light');
+                    }
+
+                    // Pre-fill fixed value
+                    if (condition === 'EQUALS' && val && val !== '*') {
+                        if (!el.value) el.value = val;
+                        if (accessMode === 'LOCKED_READONLY') {
+                            el.readOnly = true;
+                            if (el.tagName === 'SELECT') el.disabled = true;
+                        }
+                    }
+
+                    // Datalist and Select filtering for IN_LIST
+                    if (condition === 'IN_LIST' && val && val !== '*' && !val.includes('*')) {
+                        const allowedList = val.split(',').map(s => s.trim().toLowerCase());
+                        const matchesAllowed = (optionEl, optVal) => {
+                            const candidates = [
+                                optVal,
+                                (optionEl.getAttribute('data-value') || '').trim(),
+                                (optionEl.getAttribute('data-text') || '').trim(),
+                                (optionEl.label || '').trim()
+                            ].filter(Boolean).map(v => v.toLowerCase());
+
+                            if (candidates.some(c => allowedList.includes(c))) return true;
+
+                            // "Name (Code)" canonical -> accept a name-only or code-only allow entry
+                            const pm = (optVal || '').match(/^(.*?)\s*\((.*?)\)$/);
+                            if (pm) {
+                                const namePart = pm[1].trim().toLowerCase();
+                                const codePart = pm[2].trim().toLowerCase();
+                                if (allowedList.includes(namePart) || allowedList.includes(codePart)) return true;
+                            }
+                            return false;
+                        };
+
+                        const listId = el.getAttribute('list');
+                        if (listId) {
+                            const dl = document.getElementById(listId);
+                            if (dl) {
+                                Array.from(dl.options).forEach(opt => {
+                                    const optVal = (opt.value || '').trim();
+                                    if (!matchesAllowed(opt, optVal)) {
+                                        opt.remove();
+                                    }
+                                });
+                            }
+                        } else if (el.tagName === 'SELECT') {
+                            Array.from(el.options).forEach(opt => {
+                                const optVal = (opt.value || '').trim();
+                                if (optVal && !matchesAllowed(opt, optVal)) {
+                                    opt.disabled = true;
+                                    opt.style.display = 'none';
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        }
+
+        // 2. Uniqueness Checker
+        if (window.UniquenessChecker && UniquenessChecker.init) {
+            UniquenessChecker.init(form);
+        }
+
+        // 3. Grid Row Recalculation Listener
         form.addEventListener('input', (e) => {
             const input = e.target;
-            
-            // A. Trigger Auto-Fill when typing matches a list item
             if (input.hasAttribute('data-fetch_column')) {
                 const listId = input.getAttribute('list');
                 const list = document.getElementById(listId);
@@ -271,1590 +379,1007 @@ async Router(path) {
                 }
             }
 
-            // B. Trigger Real-time Math for Transactions
-            if (path.includes('transactions/')) {
-                if (input.classList.contains('qty') || input.classList.contains('rate')) {
+            if (modulePath.includes('transactions/')) {
+                if (input.classList.contains('qty') || input.classList.contains('rate') || input.classList.contains('tax-val')) {
                     if (typeof window.recalculateVoucher === 'function') window.recalculateVoucher();
                 }
             }
         });
 
-        // 4. Submission Handler (Masters vs. Transactions)
-        // 4. Submission Handler (Masters, Transactions, or Updates)
-    form.onsubmit = async (e) => {
-        e.preventDefault();
-        const btn = form.querySelector('[type="submit"]');
-        const originalBtnHtml = btn.innerHTML;
-        
-        btn.disabled = true;
-        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>`;
+        // 4. Form Submit Listener
+        form.onsubmit = async (e) => {
+            e.preventDefault();
 
-        // Detect if we are in "Edit Mode"
-        const urlParams = new URLSearchParams(window.location.search);
-        const vchKey = urlParams.get('key'); // Firebase key
-        const formType = urlParams.get('type'); // e.g., SalesInvoiceForm
+            // Strict Input List Master Validation
+            if (window.API && typeof API.ValidateInputLists === 'function') {
+                const listCheck = await API.ValidateInputLists(form);
+                if (!listCheck.isValid) {
+                    if (typeof App !== 'undefined' && App.UI && App.UI.Notify) {
+                        App.UI.Notify('Validation Notice', listCheck.message, 'danger');
+                    } else {
+                        alert(listCheck.message);
+                    }
+                    if (listCheck.invalidElement) {
+                        listCheck.invalidElement.classList.add('is-invalid');
+                        listCheck.invalidElement.style.borderColor = '#dc3545';
+                        listCheck.invalidElement.focus();
+                        if (typeof listCheck.invalidElement.scrollIntoView === 'function') {
+                            listCheck.invalidElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }
+                    return false;
+                }
+            }
 
-        const isMaster = form.dataset.category === 'Masters';
-        const data = Object.fromEntries(new FormData(form).entries());
-        
-        let success = false;
+            const submitBtn = form.querySelector('[type="submit"]');
+            const originalHtml = submitBtn ? submitBtn.innerHTML : 'Submit';
 
-        if (isMaster) {
-            success = await API.SaveMaster(form.id, data);
-        } else if (vchKey && formType) {
-            // 🚀 UPDATE MODE: Use the new UpdateVoucher function
-            success = await API.UpdateVoucher(form, formType, vchKey);
-        } else {
-            // 🚀 CREATE MODE
-            success = await API.PostVoucher(form);
-        }
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Processing...`;
+            }
 
-        if (success) {
-            if (!vchKey) form.reset(); // Don't reset if we were editing
-            if (typeof window.recalculateVoucher === 'function') window.recalculateVoucher();
-            if (vchKey) App.Router(path); // Return to list view after edit
-        }
-        
-        btn.disabled = false;
-        btn.innerHTML = originalBtnHtml;
-    };
+            const urlParams = new URLSearchParams(window.location.search);
+            const vchKey = urlParams.get('key');
+            const formType = urlParams.get('type');
+            const isMaster = form.dataset.category === 'Masters';
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
 
-        this.Log(`Module Ready: ${path}`);
+            let success = false;
+            try {
+                if (isMaster) {
+                    success = await API.SaveMaster(form.id, data);
+                    if (success) {
+                        if (window.API && window.API._MasterCache) {
+                            delete window.API._MasterCache[form.id];
+                            delete window.API._MasterCache['Stock'];
+                            delete window.API._MasterCache['stock'];
+                            delete window.API._MasterCache['LedgerCreation'];
+                            delete window.API._MasterCache['CompanyCreation'];
+                            delete window.API._MasterCache['Projects'];
+                        }
+                        // Transition to the registry view so user immediately sees the new record
+                        if (form.id === 'Stock' && window.UniTaxRouter) {
+                            UniTaxRouter.Navigate('masters/stock-list');
+                        } else if (form.id === 'LedgerCreation' && window.UniTaxRouter) {
+                            UniTaxRouter.Navigate('masters/ledger-list');
+                        } else if (form.id === 'CompanyCreation' && window.UniTaxRouter) {
+                            UniTaxRouter.Navigate('masters/company-list');
+                        } else if (form.id === 'Projects' && window.UniTaxRouter) {
+                            UniTaxRouter.Navigate('masters/project-list');
+                        }
+                    }
+                } else if (vchKey && formType) {
+                    success = await API.UpdateVoucher(form, formType, vchKey);
+                } else {
+                    success = await API.PostVoucher(form);
+                }
+
+                if (success) {
+                    if (!vchKey) form.reset();
+                    if (typeof window.recalculateVoucher === 'function') window.recalculateVoucher();
+                }
+            } catch (err) {
+                console.error("Form submission failure:", err);
+                App.UI.Notify('Error', err.message || 'Operation failed.', 'danger');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalHtml;
+                }
+            }
+        };
     },
 
-    displayWrokspaceName: function(elId = 'main_userid_show') {
-        const el = document.getElementById(elId);
-        if (!el) return;
-        const userId = App.State.userId ;
-        if (!userId) { el.innerText = 'Guest'; return; }
-        
-        firebase.database().ref(`Users/${userId}/workspace/WorkspaceSettings/workspaceName`).once('value')
-            .then(s => {
-                const name = s.val();
-                el.innerText = name || `ID: ${userId}`;
-            })
-            .catch(() => el.innerText = `ID: ${userId}`);
-    },
-
+    /**
+     * BIND GLOBAL APPLICATION EVENTS & SHORTCUTS
+     */
     BindGlobalEvents() {
         const searchInput = document.getElementById('globalSearch');
 
-        // Global Shortcut: /
+        // Global Command Search Shortcut: '/'
         document.addEventListener('keydown', (e) => {
             if (e.key === '/') {
                 if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
                     e.preventDefault();
-                    searchInput?.focus();
-                    searchInput?.select();
+                    if (searchInput) {
+                        searchInput.focus();
+                        searchInput.select();
+                    }
                 }
             }
             if (e.key === 'Escape' && document.activeElement === searchInput) {
-                App.Search.Clear();
+                searchInput.value = '';
+                searchInput.blur();
             }
         });
 
-        // Add this logic to your App initialization or where you fetch user data
-        const userEmail = App.State.userId || "user@example.com";
-        const userName = App.State.userName || "User";
-
-        // Update the Initial
-        document.getElementById('userInitial').innerText = userName.charAt(0).toUpperCase();
-
-        // Update the Profile display info
-        document.getElementById('userNameDisplay').innerText = userName;
-        document.getElementById('userEmailDisplay').innerText = userEmail;
-
-        // Handle Logout - Hook into your existing logic
-        document.getElementById('logoutButton').addEventListener('click', (e) => {
-            e.preventDefault();
-            App.Auth.Logout(); 
-            // if (confirm("Are you sure you want to logout?")) {
-            //     // Call your existing logout function here
-            // }
-        });
-
-        // Global Shortcut: Enter
+        // Search execution
         searchInput?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 App.Search.HandleSearch(searchInput.value);
             }
-        })
-        // Module Navigation
-        document.addEventListener('click', (e) => {
-            const link = e.target.closest('[data-module]');
-            if (link) { 
-                e.preventDefault(); 
-                this.Router(link.dataset.module); 
+        });
+        searchInput?.addEventListener('change', () => {
+            if (searchInput.value && searchInput.value.trim().length > 0) {
+                App.Search.HandleSearch(searchInput.value);
             }
         });
 
+        // Pin Active Module: F10
         document.addEventListener('keydown', (e) => {
             if (e.key === 'F10') {
                 e.preventDefault();
-                const current = this.State.activeModule;
+                const current = UniTaxRouter.currentRoute || 'dashboard';
                 const pinned = localStorage.getItem('pinnedModule');
 
                 if (pinned === current) {
-                    // Remove Pin
                     localStorage.removeItem('pinnedModule');
-                    this.UI.Notify('System', `Module unpinned.`, 'warning');
+                    this.UI.Notify('System', 'Module unpinned from startup.', 'info');
                 } else {
-                    // Set Pin
                     localStorage.setItem('pinnedModule', current);
-                    this.UI.Notify('System', `Module Pinned.`, 'success');
-                }
-            }
-        })
-        
-     
-
-        
-
-        // Dark Mode Toggle
-        const toggle = document.getElementById('darkModeToggleset');
-        if(toggle) {
-            toggle.addEventListener('change', (e) => {
-                this.UI.ToggleDarkMode(e.target.checked);
-            });
-        }
-
-        // Global Shortcuts (/) for Search
-        document.addEventListener('keydown', (e) => {
-            if (e.key === '/') {
-                if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
-                    e.preventDefault();
-                    document.getElementById('globalSearch')?.focus();
+                    this.UI.Notify('System', `Module [${current}] pinned as startup view.`, 'success');
                 }
             }
         });
 
         // Logout
         const logoutBtn = document.getElementById('logoutButton');
-        if(logoutBtn) {
-            logoutBtn.onclick = () => {
-                if(confirm("Sign out of UniTax Pro?")) {
-                    localStorage.clear(); 
+        if (logoutBtn) {
+            logoutBtn.onclick = (e) => {
+                e.preventDefault();
+                if (confirm("Sign out of UniTax Pro?")) {
+                    localStorage.clear();
+                    sessionStorage.clear();
                     window.location.href = 'login.html';
                 }
             };
         }
     },
 
+    /**
+     * SEARCH COMMAND ENGINE
+     */
+    Search: {
+        Registry: {
+            "dash": "dashboard",
+            "overview": "dashboard",
+            "comp": "masters/company-cw",
+            "companies": "masters/company-list",
+            "ledger": "masters/ledger-cw",
+            "ledgers": "masters/ledger-list",
+            "stock": "masters/stock-cw",
+            "inventory": "masters/stock-list",
+            "project": "masters/project-cw",
+            "projects": "masters/project-list",
+            "sales": "transactions/sales-inv",
+            "purchase": "transactions/purchase-inv",
+            "receipt": "transactions/receipt-vch",
+            "payment": "transactions/payment-vch",
+            "credit note": "transactions/salesret-inv",
+            "debit note": "transactions/purchaseret-inv",
+            "gl": "reports/gl-statement",
+            "statement": "reports/gl-statement",
+            "gstr1": "reports/gstr1",
+            "approvals": "reports/approvalmanagementsystem",
+            "users": "utilities/useradmincontrolpanel",
+            "admin": "utilities/useradmincontrolpanel",
+            "settings": "settings",
+            "profile": "utilities/profile"
+        },
+
+        HandleSearch(query) {
+            const input = (query || '').toLowerCase().trim();
+            if (!input) return;
+
+            const target = this.Registry[input];
+            if (target) {
+                UniTaxRouter.Navigate(target);
+                this.Clear();
+                return;
+            }
+
+            // Direct route search
+            if (UniTaxRouter.Routes[input]) {
+                UniTaxRouter.Navigate(input);
+                this.Clear();
+                return;
+            }
+
+            App.UI.Notify('Navigation', `No module found matching "${input}".`, 'warning');
+        },
+
+        Clear() {
+            const s = document.getElementById('globalSearch');
+            if (s) { s.value = ""; s.blur(); }
+        }
+    },
+
+    /**
+     * UI & NOTIFICATION HELPERS
+     */
     UI: {
- Notify(title, message, type = 'primary') {
-    const box = document.getElementById('errorNotificationBox');
-    const titleEl = document.getElementById('notifyTitle');
-    const msgEl = document.getElementById('notifyMessage');
-    const iconEl = document.getElementById('notifyIcon');
+        Notify(title, message, type = 'primary') {
+            const box = document.getElementById('errorNotificationBox');
+            const titleEl = document.getElementById('notifyTitle');
+            const msgEl = document.getElementById('notifyMessage');
+            const iconEl = document.getElementById('notifyIcon');
 
-    if (!box) return;
+            if (!box) {
+                console.log(`[Notification ${type}] ${title}: ${message}`);
+                return;
+            }
 
-    // 1. Clear any existing hide-timer to prevent premature sliding down
-    if (window._notifyTimeout) clearTimeout(window._notifyTimeout);
+            // Reset animation & classes
+            box.classList.remove('slide-down', 'slide-up', 'show', 'bg-primary', 'bg-success', 'bg-danger', 'bg-warning', 'bg-info');
 
-    // 2. Set Content
-    // titleEl.innerText = title;
-    msgEl.innerText = message;
+            const bgClass = type === 'danger' ? 'bg-danger' :
+                            type === 'success' ? 'bg-success' :
+                            type === 'warning' ? 'bg-warning' :
+                            type === 'info' ? 'bg-info' : 'bg-primary';
 
-    // 3. Set Professional Icon based on Type
-    let iconClass = "bi-info-circle-fill";
-    if (type === 'success') iconClass = "bi-check-circle-fill";
-    if (type === 'danger' || type === 'error') iconClass = "bi-exclamation-triangle-fill";
-    if (type === 'warning') iconClass = "bi-exclamation-circle-fill";
-    iconEl.className = `bi ${iconClass} me-3 fs-5`;
+            const iconClass = type === 'danger' ? 'bi-x-circle-fill' :
+                              type === 'success' ? 'bi-check-circle-fill' :
+                              type === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-info-circle-fill';
 
-    // 4. Set Background Color (using Bootstrap classes)
-    const bgClass = type === 'error' ? 'danger' : type; 
-    box.className = `error-notification-bar slide-up bg-${bgClass} text-white shadow-lg`;
+            box.classList.add(bgClass);
+            if (titleEl) titleEl.innerText = title;
+            if (msgEl) msgEl.innerText = message;
+            if (iconEl) iconEl.className = `bi ${iconClass} me-2 fs-5`;
 
-    // 5. Auto-Hide Logic: Slide down after 5 seconds
-    window._notifyTimeout = setTimeout(() => {
-        box.classList.remove('slide-up');
-        box.classList.add('slide-down');
-        
-        // Remove animation classes after they finish
-        setTimeout(() => {
-            box.className = 'error-notification-bar';
-        }, 500); 
-    }, 5000);
-},
+            // Trigger slide-up animation
+            box.style.display = 'flex';
+            requestAnimationFrame(() => {
+                box.classList.add('slide-up');
+                box.classList.add('show');
+            });
+
+            clearTimeout(window._notifyTimer);
+            window._notifyTimer = setTimeout(() => {
+                box.classList.remove('slide-up');
+                box.classList.add('slide-down');
+                setTimeout(() => {
+                    box.classList.remove('slide-down', 'show');
+                }, 350);
+            }, 4000);
+        },
+
         StartClock() {
-            setInterval(() => {
-                const n = new Date();
-                const t = document.getElementById('liveTime');
-                const d = document.getElementById('liveDate');
-                if(t) t.innerText = n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                if(d) d.innerText = n.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
-            }, 1000);
-        },
-        InitTheme() {
-            const isEnabled = localStorage.getItem('darkMode') === 'enabled';
-            if (isEnabled) {
-                document.body.classList.add('dark-mode');
-                const toggle = document.getElementById('darkModeToggle');
-                if(toggle) toggle.checked = true;
-            }
-        },
-        
-        ToggleDarkMode(enable) {
-            if (enable) {
-                document.body.classList.add('dark-mode');
-                localStorage.setItem('darkMode', 'enabled');
-                App.UI.Notify('Appearance', 'Dark Mode Enabled', 'info');
-            } else {
-                document.body.classList.remove('dark-mode');
-                localStorage.setItem('darkMode', 'disabled');
-                App.UI.Notify('Appearance', 'Light Mode Enabled', 'info');
-            }
-        },
-    },
-
-    Log(msg) {
-        const logger = document.getElementById('systemLogging');
-        if (logger) {
-            logger.innerHTML += `<div><span class="opacity-50">[${new Date().toLocaleTimeString()}]</span> > ${msg}</div>`;
-            logger.scrollTop = logger.scrollHeight;
-        }
-    }
-};
-
-
-// 1. Open Modal (Unchanged)
-window.opentaskmodal = function() {
-    new bootstrap.Modal(document.getElementById('taskModal')).show();
-};
-
-// 2. Save Task (Now syncs to Firebase)
-window.saveTask = async function() {
-    const input = document.getElementById('taskInput');
-    const taskText = input.value.trim();
-    if (!taskText) return;
-
-    // Get current user details from local storage
-    const currentUserId = localStorage.getItem('userloginid');
-    const currentUserName = localStorage.getItem('userName') || "User";
-
-    // Task Payload
-    // Note: Since you are building the Manager UI later, this function 
-    // currently defaults to creating a "Self-Assigned" task for the active user.
-    const taskData = {
-        text: taskText,
-        assignedTo: currentUserId, // Who has to do the task
-        assignedBy: "Self",        // System flag (Self vs Manager)
-        assignerName: currentUserName, // Name to display
-        timestamp: firebase.database.ServerValue.TIMESTAMP,
-        done: false
-    };
-
-    try {
-        const db = firebase.database();
-        await db.ref('Utilities/Tasks').push(taskData);
-        
-        input.value = '';
-        bootstrap.Modal.getInstance(document.getElementById('taskModal')).hide();
-        // Note: We don't need to manually call renderTasks() here because 
-        // the real-time listener below will detect the new task and auto-update.
-    } catch (error) {
-        console.error("Task Save Error:", error);
-        alert("Failed to save task.");
-    }
-};
-
-window.renderTasks = function() {
-    const taskSection = document.getElementById('taskSection');
-    const currentUserId = localStorage.getItem('userloginid');
-
-    if (!currentUserId || !taskSection) return;
-
-    // Clear existing content
-    taskSection.innerHTML = '';
-
-    // Create table container
-    const tableContainer = document.createElement('div');
-    tableContainer.className = 'table-container';
-    tableContainer.style.cssText = `
-        max-height: 100%;
-        overflow-y: auto;
-        position: relative;
-        height: 100%;
-    `;
-
-    // Create table
-    const table = document.createElement('table');
-    table.className = 'table table-hover';
-    table.style.cssText = `
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 0;
-    `;
-
-    // Create thead with sticky positioning
-    const thead = document.createElement('thead');
-    thead.style.cssText = `
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        background: white;
-    `;
-    thead.innerHTML = `
-        <tr style="border-bottom: 2px solid rgba(0,0,0,0.08); background: white;">
-            <th style="width: 30px; padding: 8px 12px; font-size: 0.75rem; font-weight: 600; color: #6c757d; text-align: left;">#</th>
-            <th style="padding: 8px 12px; font-size: 0.75rem; font-weight: 600; color: #6c757d; text-align: left;">Task</th>
-            <th style="width: 50px; padding: 8px 12px; font-size: 0.75rem; font-weight: 600; color: #6c757d; text-align: right;">Action</th>
-        </tr>
-    `;
-
-    // Create tbody
-    const tbody = document.createElement('tbody');
-    tbody.id = 'taskTableBody';
-
-    // Append thead and tbody to table
-    table.appendChild(thead);
-    table.appendChild(tbody);
-
-    // Append table to container
-    tableContainer.appendChild(table);
-
-    // Append container to taskSection
-    taskSection.appendChild(tableContainer);
-
-    // Show loading skeleton
-    tbody.innerHTML = `
-        <tr>
-            <td colspan="3" class="text-center text-muted py-3">
-                <span class="spinner-border spinner-border-sm"></span> Syncing tasks...
-            </td>
-        </tr>
-    `;
-
-    // Firebase listener
-    const db = firebase.database();
-    
-    db.ref('Utilities/Tasks').orderByChild('assignedTo').equalTo(currentUserId).on('value', (snapshot) => {
-        const tasks = snapshot.val() || {};
-        const taskEntries = Object.entries(tasks);
-
-        if (taskEntries.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="3" class="text-center py-4">
-                        <div class="d-flex flex-column align-items-center text-muted">
-                            <i class="bi bi-check-circle-fill fs-3 text-success opacity-75"></i>
-                            <p class="mb-0 fw-bold mt-2">All caught up!</p>
-                            <small class="small">No pending tasks found.</small>
-                        </div>
-                    </td>
-                </tr>
-            `;
-            return;
-        }
-
-        const sorted = taskEntries.sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
-
-        tbody.innerHTML = sorted.map(([taskId, t], index) => {
-            const srNo = index + 1;
-
-            const dateStr = t.timestamp
-                ? new Date(t.timestamp).toLocaleDateString('en-GB', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
-                : 'Just now';
-
-            let metaHtml = '';
-            if (t.assignedBy !== "Self") {
-                metaHtml = `
-                    <div class="text-primary mt-1" style="font-size: 0.65rem; font-weight: 500;">
-                        <i class="bi bi-person-workspace me-1"></i>
-                        Assigned by ${t.assignerName || 'Manager'} • ${dateStr}
-                    </div>
-                `;
-            } else {
-                metaHtml = `
-                    <div class="text-muted mt-1" style="font-size: 0.65rem;">
-                        <i class="bi bi-clock me-1"></i>
-                        Personal • ${dateStr}
-                    </div>
-                `;
-            }
-
-            let priorityBadge = '';
-            if (t.priority) {
-                const priorityMap = {
-                    high: 'danger',
-                    medium: 'warning',
-                    low: 'success'
-                };
-                const color = priorityMap[t.priority.toLowerCase()] || 'secondary';
-                priorityBadge = `
-                    <span class="badge bg-${color} bg-opacity-10 text-${color} rounded-pill ms-2" style="font-size: 0.6rem; border: 1px solid rgba(0,0,0,0.05);">
-                        ${t.priority}
-                    </span>
-                `;
-            }
-
-            return `
-                <tr class="task-row align-middle" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
-                    <td class="ps-3 py-2 text-muted small fw-bold" style="width: 30px; font-size: 0.75rem;">
-                        ${srNo}
-                    </td>
-                    <td class="py-2 px-2">
-                        <div class="d-flex align-items-center">
-                            <span class="fw-bold text-dark" style="font-size: 0.9rem;">
-                                ${t.text}
-                            </span>
-                            ${priorityBadge}
-                        </div>
-                        ${metaHtml}
-                    </td>
-                    <td class="pe-3 py-2 text-end" style="width: 50px;">
-                        <button class="btn btn-sm btn-primary py-1 px-2" 
-                                style="border: 1px solid rgba(0,0,0,0.1); background: transparent;"
-                                onclick="deleteTask('${taskId}')" 
-                                title="Mark as Done">
-                            <i class="bi bi-check2-all"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    });
-};
-// 4. Delete / Mark as Done Task
-window.deleteTask = async function(taskId) {
-    try {
-        const db = firebase.database();
-        // Remove the task from Firebase
-        await db.ref(`Utilities/Tasks/${taskId}`).remove();
-        
-        // Optional: Trigger your UI Notification if you have it loaded
-        if (typeof App !== 'undefined' && App.UI) {
-            App.UI.Notify('Task Completed', 'Marked Done!', 'success');
-        }
-    } catch (error) {
-        console.error("Task Delete Error:", error);
-    }
-};
-
-// 5. Auto-start the task fetcher when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    // Adding a slight delay ensures Firebase initializes first
-    setTimeout(() => {
-        if (typeof firebase !== 'undefined') {
-            renderTasks();
-        }
-    }, 300);
-});
-
-
-/**
- * 9. Unified Print Engine
- */
-App.PrintEngine = {
-    async Render(templateName, data) {
-        try {
-            // 1. Fetch the template
-            const response = await fetch(`modules/print/${templateName}.html`);
-            if (!response.ok) throw new Error("Print template not found");
-            let html = await response.text();
-
-            // 2. Map the data
-            Object.entries(data).forEach(([key, value]) => {
-                const regex = new RegExp(`{{${key}}}`, 'g');
-                html = html.replace(regex, value || '');
-            });
-
-            // 3. Open in a NEW FULL TAB (no size restrictions)
-            const printWindow = window.open('', '_blank');
-            
-            // 4. Write the document
-            printWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
-                    <head>
-                        <title>Print Document - ${data.doc_no || 'Document'}</title>
-                        <meta charset="utf-8">
-                    </head>
-                    <body>${html}</body>
-                </html>
-            `);
-            printWindow.document.close();
-            
-            // Note: We NO LONGER call printWindow.print() or close().
-            // The user will click the button inside the new tab.
-
-        } catch (err) {
-            console.error("Print Engine Error:", err);
-            if(App.UI) App.UI.Notify("Print Error", "Could not load print template.", "danger");
-        }
-    }
-};
-
-
-// Example usage from your Transaction screen:
-async function PrintReceipt(transactionKey) {
-    // 1. Fetch the raw data
-    const data = await API.Fetch(`Transactions/ReceiptVoucherForm/${transactionKey}`);
-    
-    // 2. Map data to your template placeholders
-    const printData = {
-        companyName: "NEXUS LEDGER SOLUTIONS",
-        companyAddress: "Cyber City, Gurgaon, Haryana",
-        date: data.header.date,
-        doc_no: data.header.doc_no,
-        customer_name: data.header.entity,
-        grandTotal: Utils.FormatINR(data.header.grandTotal || 0),
-        narration: data.header.narration
-    };
-
-    // 3. Render using your new PrintEngine
-    App.PrintEngine.Render('receipt-vch', printData);
-}
-
-
-// 4. F5 Keyboard Listener (Add to app.js - BindGlobalEvents)
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'F5') {
-        e.preventDefault();
-        window.opentaskmodal();
-        // App.UI.Notify('Task Manager', 'F5 Pressed: Creating new task', 'info');
-    }
-});
-
-// Initial load
-document.addEventListener('DOMContentLoaded', renderTasks);
-// Start Engine
-document.addEventListener('DOMContentLoaded', () => App.Init());
-
-// --- UNIVERSAL DYNAMIC PRINT FUNCTION (Must be in global scope) ---
-window.printTransaction = async function(type, key) {
-    try {
-        const printMap = {
-            "SalesInvoiceForm": "tax-invoice",
-            "PurchaseInvoiceForm": "tax-invoice",
-            "PurchaseReturnForm": "tax-invoice",
-            "SalesReturnForm": "tax-invoice",
-            "ReceiptVoucherForm": "receipt-vch",
-            "PaymentVoucherForm": "receipt-vch",
-            "ReceiptPaymentForm": "receipt-pay"
-        };
-        
-        const templateName = printMap[type] || "receipt-vch";
-        const isInvoice = type.includes("Invoice");
-        const isReturn = type.includes("Return");
-        const isReceipt = type.includes("Receipt");
-        const isPayment = type.includes("Payment");
-
-        const data = await API.Fetch(`Transactions/${type}/${key}`);
-        if (!data) throw new Error("Transaction data missing.");
-        console.log(data);
-        
-        // 1. LOAD SYSTEM SETTINGS
-        let sysSettings = {};
-        try { sysSettings = JSON.parse(localStorage.getItem('ERP_Settings')) || {}; } catch(e){}
-
-        // 2. FETCH MASTERS
-        const ledgerData = await API.Fetch('Masters/LedgerCreation') || {};
-        const stockData = await API.Fetch('Masters/Stock') || {}; 
-        const companiesData = await API.Fetch('Masters/Companies') || {};
-
-        // 3. FIND COMPANY CODE
-        let companyCode = data.header.CompanyCode || data.header.companyCode || data.header.CompanyName;
-        let projectName = data.header.project || data.header.Project;
-        
-        if (projectName) {
-            try {
-                const projectData = await API.Fetch('Masters/Projects') || {};
-                const projectInfo = Object.values(projectData).find(p =>
-                    (p.ProjectName && p.ProjectName.toString().toLowerCase() === projectName.toString().toLowerCase()) ||
-                    (p.name && p.name.toString().toLowerCase() === projectName.toString().toLowerCase()) ||
-                    (p.ProjectCode && p.ProjectCode.toString().toLowerCase() === projectName.toString().toLowerCase())
-                );
-                if (projectInfo) companyCode = projectInfo.CompanyName || projectInfo.CompanyCode || projectInfo.companyCode || companyCode;
-            } catch (err) { console.warn("Could not fetch project data:", err); }
-        }
-
-        // 4. RESOLVE COMPANY INFO
-        let companyInfo = null;
-        if (companyCode) {
-            companyInfo = Object.values(companiesData).find(c =>
-                c.CompanyCode?.toString() === companyCode.toString() ||
-                c.companyCode?.toString() === companyCode.toString() ||
-                c.CompanyName?.toString().toLowerCase() === companyCode.toString().toLowerCase() ||
-                c.companyName?.toString().toLowerCase() === companyCode.toString().toLowerCase()
-            );
-        }
-
-        let compName = companyInfo?.companyName || companyInfo?.CompanyName || sysSettings.companyName || "YOUR COMPANY NAME".toUpperCase();
-        let compAddress = sysSettings.companyAddress || "Company Address not set.";
-        if (companyInfo) {
-            const addrParts = [companyInfo.companyAddress1 || companyInfo.Address1 || companyInfo.address1, companyInfo.companyAddress2 || companyInfo.Address2 || companyInfo.address2, companyInfo.Company_State || companyInfo.State || companyInfo.state, companyInfo.pin || companyInfo.PinCode || companyInfo.pincode].filter(Boolean);
-            if (addrParts.length) compAddress = addrParts.join(", ");
-        }
-        
-        let compGST = companyInfo?.GSTIN || companyInfo?.GstNo || companyInfo?.gstin || sysSettings.companyGST || "";
-        let compEmail = companyInfo?.email || companyInfo?.Email || sysSettings.companyEmail || "";
-        let compPhone = companyInfo?.companyPhone || companyInfo?.mobile || companyInfo?.Mobile || companyInfo?.Phone || sysSettings.companyPhone || "";
-        let compState = (companyInfo?.Company_State || companyInfo?.State || companyInfo?.state || "delhi").toLowerCase().trim();
-
-        // 5. RESOLVE PARTY INFO
-        let rawPartyName = data.header.customer_ledger || data.header.entity || data.header.PartyName || "";
-        let partyName = rawPartyName, partyCode = "N/A", partyAddress = "N/A", partyGST = "N/A", partyState = "N/A", cleanPartyState = "";
-        let partyemail = "", partyphone = "";
-        let partyAccountNumber = "", partyIFSC = "", partyAccountBranch = "", partySWIFT = "";
-
-        if (rawPartyName && Object.keys(ledgerData).length > 0) {
-            Object.values(ledgerData).forEach(l => {
-                const ledgerName = (l.name || l.ledgerName || "").toLowerCase();
-                const ledgerCode = (l.ledgerCode || l.code || "").toLowerCase();
-                const searchTerm = rawPartyName.toLowerCase();
-                
-                if (ledgerName === searchTerm || ledgerCode === searchTerm) {
-                    partyName = l.name || l.ledgerName || rawPartyName;
-                    partyCode = l.ledgerCode || l.code || "N/A";
-                    partyGST = l.GST || l.gstNo || "N/A";
-                    partyemail = l.email ? "Email: " + l.email.toLowerCase() : "";
-                    partyphone = l.Mobile ? "Phone: " + l.Mobile : "";
-                    partyAccountNumber = l.accountNumber || "";
-                    partyIFSC = l.ifscCode || "";
-                    partyAccountBranch = l.branchName || "";
-                    partySWIFT = l.SwiftCode || "";
-                    const addrParts = [l.address1, l.address2, l.state, l.pin].filter(Boolean);
-                    if (addrParts.length) partyAddress = addrParts.join(", ");
-                    if (l.state) {
-                        partyState = l.state;
-                        cleanPartyState = l.state.toLowerCase().trim();
-                    }
-                }
-            });
-        }
-
-        const isInterState = (compState !== cleanPartyState && cleanPartyState !== "");
-
-        // 6. GENERATE ITEMS & HSN SUMMARY
-        let itemsHtml = "";
-        let hsnSummary = {};
-        let rawSubTotal = parseFloat(data.header.subTotal || data.header.SubTotal || 0);
-        let rawTaxTotal = parseFloat(data.header.taxTotal || data.header.TaxTotal || 0);
-        let actionTerm = type.includes("Payment") ? "Account Debited" : "Account Credited";
-
-        if (data.items && data.items.length) {
-            data.items.forEach((item, idx) => {
-                let iCode = item.item_name || item.itemName || item.offset_account || "Unknown";
-                let iName = iCode, iSku = iCode, iDesc = (item.description || item.Description || item.row_narration || "").trim(), iHSN = item.itemHSN || item.HSN || item.auto_item_name_ItemHSN || "N/A";
-
-                let searchKey = String(iCode).toLowerCase().trim();
-                if (Object.keys(stockData).length > 0) {
-                    Object.values(stockData).forEach(s => {
-                        let serverSku = String(s.Stock_Code || s.ItemCode || s.Sku || "").toLowerCase().trim();
-                        let serverName = String(s.itemName || s.ItemName || s.name || "").toLowerCase().trim();
-                        if (serverSku === searchKey || serverName === searchKey) {
-                            iName = s.itemName || s.ItemName || s.name || iName;
-                            iSku = s.Stock_Code || s.ItemCode || s.Sku || iSku;
-                            if (s.itemHSN || s.HSN) iHSN = s.itemHSN || s.HSN;
-                            if (!iDesc && (s.Description || s.description)) iDesc = (s.Description || s.description).trim();
-                        }
-                    });
-                }
-
-                let qty = parseFloat(item.qty || item.quantity || 1);
-                let rate = parseFloat(item.rate || item.price || item.amount || 0);
-                let taxPrc = parseFloat(item.taxRate || item.tax || item.auto_item_name_ItemTax || 0);
-                let lineAmount = qty * rate;
-
-                let hsnKey = `${iHSN}_${taxPrc}`;
-                if (!hsnSummary[hsnKey]) hsnSummary[hsnKey] = { hsn: iHSN, rate: taxPrc, taxable: 0, taxAmt: 0 };
-                hsnSummary[hsnKey].taxable += lineAmount;
-                hsnSummary[hsnKey].taxAmt += lineAmount * (taxPrc / 100);
-
-                if (!data.header.subTotal && !data.header.SubTotal) rawSubTotal += lineAmount;
-                if (!data.header.taxTotal && !data.header.TaxTotal) rawTaxTotal += lineAmount * (taxPrc / 100);
-
-                if (isInvoice) {
-                    let itemDisplay = `<strong>${iName} ${iSku !== iName ? `(${iSku})` : ''}</strong>`;
-                    if (iDesc !== "") itemDisplay += `<br><small style="color:#666; font-size:8.5pt;">${iDesc}</small>`;
-                    itemsHtml += `<tr><td class="text-center">${idx + 1}</td><td>${itemDisplay}</td><td class="text-center">${iHSN}</td><td class="text-center">${qty.toFixed(2)}</td><td class="text-right">${Utils.FormatINR(rate)}</td><td class="text-center">${taxPrc}%</td><td class="text-right"><strong>${Utils.FormatINR(lineAmount)}</strong></td></tr>`;
-                } else {
-                    let itemDisplay = `<strong>${actionTerm}:</strong> ${iName} ${iSku !== iName ? `(${iSku})` : ''}`;
-                    if (iDesc !== "") itemDisplay += `<br><small style="color:#666; font-size:8.5pt;">${iDesc}</small>`;
-                    itemsHtml += `<tr><td class="text-center">${idx + 1}</td><td>${itemDisplay}</td><td style="float:right;" class="text-end"><strong>${Utils.FormatINR(lineAmount)}</strong></td></tr>`;
-                }
-            });
-        }
-
-        let hsnHtml = "";
-        if (Object.keys(hsnSummary).length > 0) {
-            Object.values(hsnSummary).forEach(row => {
-                let igstR = "-", igstA = "-", cgstR = "-", cgstA = "-", sgstR = "-", sgstA = "-";
-                if (isInterState) { igstR = row.rate + '%'; igstA = '₹ ' + Utils.FormatINR(row.taxAmt); } 
-                else { cgstR = (row.rate / 2) + '%'; cgstA = '₹ ' + Utils.FormatINR(row.taxAmt / 2); sgstR = (row.rate / 2) + '%'; sgstA = '₹ ' + Utils.FormatINR(row.taxAmt / 2); }
-                hsnHtml += `<tr><td style="text-align: left;">${row.hsn}</td><td style="text-align: right;">₹ ${Utils.FormatINR(row.taxable)}</td><td style="text-align: center;">${igstR}</td><td style="text-align: right;">${igstA}</td><td style="text-align: center;">${cgstR}</td><td style="text-align: right;">${cgstA}</td><td style="text-align: center;">${sgstR}</td><td style="text-align: right;">${sgstA}</td><td style="text-align: right; font-weight:bold;">₹ ${Utils.FormatINR(row.taxAmt)}</td></tr>`;
-            });
-        } else { hsnHtml = `<tr><td colspan="9" class="text-center">No Tax Details Found</td></tr>`; }
-
-        // 7. DISPLAY TOGGLES
-        const dBank = sysSettings.enableBankingInfo ? "flex" : "none";
-        const dTerms = (sysSettings.enableTerms && sysSettings.invoiceTerms) ? "block" : "none";
-        const dSign = "flex" ;
-        const dWords = sysSettings.showAmountInWords !== false ? "block" : "none";
-
-        let upiDisplay = "none", upiLink = "", qrUrl = "";
-        let rawTotal = parseFloat(data.header.grandTotal || data.header.GrandTotal || (rawSubTotal + rawTaxTotal));
-
-        if (sysSettings.enableBankingInfo && sysSettings.upiid && sysSettings.upiid.trim() !== "") {
-            upiDisplay = "block";
-            upiLink = `upi://pay?pa=${sysSettings.upiid.trim()}&pn=${encodeURIComponent(compName)}&am=${rawTotal}&cu=INR`;
-            qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiLink)}`;
-        }
-
-        const safeDeliveryAddr = [data.meta?.delivery_address, data.meta?.delivery_state, data.meta?.delivery_pin].filter(Boolean).join(", ");
-        
-        // ==========================================
-        // TITLE DETERMINATION - FIXED
-        // ==========================================
-        let title;
-        const meta = data.meta || {};
-        const docType = meta.DocumentType || data.header.DocumentType || "";
-
-        // Check by form type first (most reliable)
-        if (type === "SalesInvoiceForm" || type === "PurchaseInvoiceForm") {
-            title = "TAX INVOICE";
-        } else if (type === "SalesReturnForm") {
-            title = "CREDIT NOTE";
-        } else if (type === "PurchaseReturnForm") {
-            title = "DEBIT NOTE";
-        } else if (type === "ReceiptVoucherForm" || type === "ReceiptPaymentForm") {
-            title = "RECEIPT VOUCHER";
-        } else if (type === "PaymentVoucherForm") {
-            title = "PAYMENT VOUCHER";
-        } else if (docType === "SALE" || docType === "PURCHASE" || docType === "SALES" || docType === "PURCHASES" || docType === "INVOICE") {
-            title = "TAX INVOICE";
-        } else if (docType === "SALES_RETURN" || docType === "SALESRETURN" || docType === "CREDIT_NOTE" || docType === "CREDITNOTE" || docType === "CREDIT") {
-            title = "CREDIT NOTE";
-        } else if (docType === "PURCHASE_RETURN" || docType === "PURCHASERETURN" || docType === "DEBIT_NOTE" || docType === "DEBITNOTE" || docType === "DEBIT") {
-            title = "DEBIT NOTE";
-        } else if (docType === "RECEIPT") {
-            title = "RECEIPT VOUCHER";
-        } else if (docType === "PAYMENT") {
-            title = "PAYMENT VOUCHER";
-        } else if (isInvoice) {
-            title = "TAX INVOICE";
-        } else if (isReturn) {
-            // Check if it's a sales return (Credit Note) or purchase return (Debit Note)
-            if (type.includes("Sales")) {
-                title = "CREDIT NOTE";
-            } else if (type.includes("Purchase")) {
-                title = "DEBIT NOTE";
-            } else {
-                title = "DEBIT/CEDIT NOTE";
-            }
-        } else if (isReceipt) {
-            title = "RECEIPT VOUCHER";
-        } else if (isPayment) {
-            title = "PAYMENT VOUCHER";
-        } else {
-            title = "DOCUMENT";
-        }
-
-        const printData = {
-            display_bank: dBank, 
-            display_terms: dTerms, 
-            display_sign: dSign, 
-            display_words: dWords, 
-            display_upi: upiDisplay,
-            companyName: compName.toUpperCase(), 
-            companyAddress: compAddress, 
-            gstin: compGST.toUpperCase(), 
-            companyEmail: compEmail.toLowerCase(), 
-            companyPhone: compPhone,
-            bank_name: sysSettings.enableBankingInfo ? (sysSettings.bankName || "") : "", 
-            bank_ac_name: sysSettings.enableBankingInfo ? (sysSettings.bankAccountName || "") : "", 
-            bank_ac: sysSettings.enableBankingInfo ? (sysSettings.bankAccountNumber || "") : "", 
-            bank_ifsc: sysSettings.enableBankingInfo ? (sysSettings.bankIFSC || "") : "", 
-            invoiceTerms: sysSettings.enableTerms ? (sysSettings.invoiceTerms || "") : "", 
-            upi_id: (sysSettings.enableBankingInfo && sysSettings.upiid) ? sysSettings.upiid.trim() : "", 
-            qr_url: qrUrl, 
-            Document_title: title,
-            date: Utils.FormatDate(data.header.date || data.header.voucher_date || data.header.valueDate || data.header.Date),
-            doc_no: data.header.doc_no || data.header.Invoice || data.header.DocNo || "N/A",
-            customer_name: partyName.toUpperCase(), 
-            customer_code: partyCode.toUpperCase(), 
-            customer_address: partyAddress.trim(), 
-            customer_gst: partyGST.toUpperCase(), 
-            customer_state: partyState, 
-            customer_email: partyemail, 
-            customer_phone: partyphone, 
-            ledger_IFSC: partyIFSC.toUpperCase(),
-            ledger_code: partyCode, 
-            ledger_AccountNumber: partyAccountNumber,
-            ledger_Branch: partyAccountBranch,
-            ledger_swift: partySWIFT.toUpperCase(), 
-            ledger_name: partyName.toUpperCase(),
-            consignee_name: (data.meta?.consignee_name || "").toUpperCase() , 
-            Ledger_gst: partyGST, 
-            delivery_address: safeDeliveryAddr,
-            vehicle_no: data.meta?.vehicle_no ? "Vehicle No: " + data.meta.vehicle_no.toUpperCase() : "",
-            LR_No: data.meta?.lr_no ? "LR No: " + data.meta.lr_no.toUpperCase() : "",
-            delivery_phone: data.meta?.delivery_phone ? "Phone: " + data.meta.delivery_phone : "",
-            delivery_email: data.meta?.delivery_email ? "Email: " + data.meta.delivery_email : "",
-            Valuedate: Utils.FormatDate(data.header.date), 
-            Instdate: Utils.FormatDate(data.header.instrumentDate),
-            subTotal: Utils.FormatINR(rawSubTotal), 
-            taxTotal: Utils.FormatINR(rawTaxTotal), 
-            grandTotal: Utils.FormatINR(rawTotal),
-            amountInWords: (typeof window.NumberToWords === 'function') ? window.NumberToWords(Math.round(rawTotal)) : "Amount in words...",
-            narration: data.header.narration || data.header.Narration || "",
-            items_html: itemsHtml || '<tr><td colspan="7" class="text-center">No Items Found</td></tr>', 
-            hsn_html: hsnHtml,
-            bank_code: data.items && data.items.length > 0 ? (data.items[0].offset_account || data.items[0].item_name || "N/A").toUpperCase() : "N/A",
-            bank_gst: compGST.toUpperCase(),
-            bank_state: compState.toUpperCase(),
-        };
-
-        if (App.PrintEngine && typeof App.PrintEngine.Render === 'function') {
-            App.PrintEngine.Render(templateName, printData);
-        } else {
-            alert("PrintEngine is missing. Make sure your printing script is loaded.");
-        }
-
-    } catch (err) {
-        console.error("Print Error:", err);
-        alert("Error printing document: " + err.message);
-    }
-};
-
-// search
-/**
- * ==============================================================================
- * CLIENT NOTIFICATION ENGINE
- * Fetches, filters, and renders real-time notifications for the current user.
- * ==============================================================================
- */
-const UIUtils = {
-    GetIcon(type) {
-        const map = {
-            info: { bg: 'bg-info bg-opacity-10 text-info', icon: 'bi-info-circle', emoji: 'ℹ️' },
-            task: { bg: 'bg-primary bg-opacity-10 text-primary', icon: 'bi-briefcase', emoji: '📋' },
-            success: { bg: 'bg-success bg-opacity-10 text-success', icon: 'bi-check-circle', emoji: '✅' },
-            warning: { bg: 'bg-warning bg-opacity-10 text-warning', icon: 'bi-exclamation-triangle', emoji: '⚠️' },
-            error: { bg: 'bg-danger bg-opacity-10 text-danger', icon: 'bi-x-circle', emoji: '❌' },
-            payment: { bg: 'bg-success bg-opacity-10 text-success', icon: 'bi-wallet2', emoji: '💰' }
-        };
-        return map[type?.toLowerCase()] || { bg: 'bg-secondary bg-opacity-10 text-secondary', icon: 'bi-bell', emoji: '🔔' };
-    }
-};
-
-const NotificationEngine = {
-    userId: localStorage.getItem('userloginid'),
-
-    Init() {
-        if (!this.userId) return;
-        this.ListenToDatabase();
-    },
-
-    ListenToDatabase() {
-        firebase.database().ref('Utilities/Notifications').orderByChild('timestamp').limitToLast(50).on('value', (snapshot) => {
-            this.ProcessAndRender(snapshot.val());
-        });
-    },
-
-    ProcessAndRender(data) {
-    const list = document.getElementById('notificationList');
-    const dot = document.getElementById('notificationDot');
-    const countBadge = document.getElementById('notificationCount');
-    if (!list) return;
-    list.innerHTML = '';
-
-    if (!data) { 
-        list.innerHTML = `<li class="p-3 text-muted small text-center">No notifications</li>`; 
-        return; 
-    }
-
-    let unreadCount = 0;
-    Object.entries(data)
-        .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))
-        .forEach(([id, notif]) => {
-            if (notif.target !== 'all' && notif.target !== App.State.currentuserId) return;
-
-            const hasSeen = notif.ReadStatus?.[this.userId] === true;
-            if (!hasSeen) unreadCount++;
-
-            const icon = UIUtils.GetIcon(notif.type);
-            
-            // Format timestamp
-            let timeAgo = '';
-            if (notif.timestamp) {
-                const date = new Date(notif.timestamp);
+            const liveTime = document.getElementById('liveTime');
+            const liveDate = document.getElementById('liveDate');
+            if (!liveTime && !liveDate) return;
+
+            const updateClock = () => {
                 const now = new Date();
-                const diffMs = now - date;
-                const diffMins = Math.floor(diffMs / 60000);
-                const diffHours = Math.floor(diffMs / 3600000);
-                const diffDays = Math.floor(diffMs / 86400000);
-                
-                if (diffMins < 1) {
-                    timeAgo = 'Just now';
-                } else if (diffMins < 60) {
-                    timeAgo = `${diffMins}m ago`;
-                } else if (diffHours < 24) {
-                    timeAgo = `${diffHours}h ago`;
-                } else if (diffDays < 7) {
-                    timeAgo = `${diffDays}d ago`;
-                } else {
-                    timeAgo = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                if (liveTime) {
+                    liveTime.innerText = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
                 }
+                if (liveDate) {
+                    liveDate.innerText = now.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+                }
+            };
+            updateClock();
+            setInterval(updateClock, 1000);
+        },
+
+        InitTheme() {
+            if (localStorage.getItem('darkMode') === 'enabled') {
+                document.body.classList.add('dark-mode');
             }
+        },
 
-            list.innerHTML += `
-                <li class="notification-items ">
-                    <div class="dropdown-item rounded-2 p-2 h-100 border-bottom ${!hasSeen ? 'bg-secondary bg-opacity-10' : ''}" 
-                         style="cursor: pointer;" 
-                         onclick="NotificationEngine.MarkAsSeen('${id}', '${notif.link || ''}')">
-                        <div class="d-flex align-items-center">
-                            <i class="bi ${icon.icon} ${icon.bg.split(' ')[2]} me-2"></i>
-                            <span class="fw-bold small text-truncate">${notif.title}</span>
-                            <span class="ms-auto small text-muted" style="font-size: 9px; white-space: nowrap;">${timeAgo}</span>
-                        </div>
-                        <div class="text-muted small text-truncate ms-4 ps-1">${notif.message}</div>
-                        
-                    </div>
-                </li>
-            `;
-        });
-
-    if (countBadge) countBadge.innerText = unreadCount;
-    if (dot) dot.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-},
-
-    async MarkAsSeen(id, link) {
-        await firebase.database().ref(`Utilities/Notifications/${id}/ReadStatus/${this.userId}`).set(true);
-        if (link && typeof App !== 'undefined') App.Router(link);
+        ToggleDarkMode(enable) {
+            document.body.classList.toggle('dark-mode', enable);
+            localStorage.setItem('darkMode', enable ? 'enabled' : 'disabled');
+        }
     }
 };
 
-const BrowserNotificationEngine = {
-    userId: localStorage.getItem('userloginid'),
-    shownTimeouts: new Set(),
-    hasAskedPermission: false,
+/**
+ * SYSTEM ALERTS & NOTIFICATION ENGINE
+ * Strictly filters and appends ONLY:
+ * 1. Platform Promotions & Feature Releases from Master Admin
+ * 2. Approvals assigned to user or rejected
+ * Each notification card is rendered as a single clickable anchor tag <a> without badges or inner buttons.
+ */
+NotificationEngine = {
+    _items: [],
+    _unreadCount: 0,
+    _bound: false,
+    _readSet: new Set(),
+    _readPath: null,
 
-    Init() {
-        // Check if browser supports notifications
-        if (!("Notification" in window)) {
-            console.log('Browser does not support notifications');
-            return;
-        }
-
-        // Listen for new broadcasts
-        firebase.database().ref('Utilities/Broadcast-Services').on('child_added', (snapshot) => {
-            const notif = snapshot.val();
-            const id = snapshot.key;
-
-            // Check if targeted to ALL or if this userId is in the target array
-            const isForMe = notif.target === 'all' || (Array.isArray(notif.target) && notif.target.includes(this.userId));
-            if (!isForMe) return;
-            
-            // Check if already seen
-            const hasSeen = notif.ReadStatus?.[this.userId] === true;
-            
-            if (!hasSeen && !this.shownTimeouts.has(id)) {
-                // Check permission status
-                if (Notification.permission === "granted") {
-                    // Permission already granted - show after 30s
-                    this.shownTimeouts.add(id);
-                    setTimeout(() => this.Show(id, notif), 30000);
-                } else if (Notification.permission === "default" && !this.hasAskedPermission) {
-                    // Permission not yet asked - request now
-                    this.hasAskedPermission = true;
-                    this.RequestPermission(id, notif);
-                } else if (Notification.permission === "denied") {
-                    console.log('Notifications blocked by user');
-                    // Still mark as seen to prevent repeated attempts
-                    firebase.database().ref(`Utilities/Broadcast-Services/${id}/ReadStatus/${this.userId}`).set(true);
-                }
-            }
-        });
+    _CurrentUserId() {
+        return String(localStorage.getItem('userloginid') || localStorage.getItem('userId') || (typeof App !== 'undefined' && App.State && App.State.userId) || '').trim().replace(/^#/, '');
     },
 
-    RequestPermission(id, notif) {
-        // Show a friendly prompt before requesting
-        if (confirm('🔔 Enable notifications to receive real-time alerts for approvals and updates?')) {
-            Notification.requestPermission().then(permission => {
-                if (permission === "granted") {
-                    console.log('Notification permission granted');
-                    // Show the notification after permission is granted
-                    this.shownTimeouts.add(id);
-                    setTimeout(() => this.Show(id, notif), 1000);
-                } else {
-                    console.log('Notification permission denied');
-                    // Mark as seen so we don't ask again for this notification
-                    firebase.database().ref(`Utilities/Broadcast-Services/${id}/ReadStatus/${this.userId}`).set(true);
+    _WorkspaceId() {
+        return String(localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid') || (typeof App !== 'undefined' && App.State && App.State.userId) || '').trim().replace(/^#/, '');
+    },
+
+    _GetReadPath() {
+        const wsId = this._WorkspaceId();
+        const uid = this._CurrentUserId();
+        if (!wsId || !uid) return null;
+        return `Users/${wsId}/workspace/NotificationReadState/${uid}`;
+    },
+
+    _LocalReadKey() { return 'unitax_notif_read'; },
+
+    _GetLocalReadSet() {
+        try { return new Set(JSON.parse(localStorage.getItem(this._LocalReadKey()) || '[]')); } catch (e) { return new Set(); }
+    },
+
+    _SaveLocalReadSet(set) {
+        try { localStorage.setItem(this._LocalReadKey(), JSON.stringify(Array.from(set))); } catch (e) {}
+    },
+
+    BindReadStateListener() {
+        if (typeof firebase === 'undefined' || !firebase.database) return;
+        const path = this._GetReadPath();
+        if (!path || this._readPath === path) return;
+        this._readPath = path;
+        try {
+            firebase.database().ref(path).on('value', (snap) => {
+                const val = snap && snap.val();
+                const next = new Set();
+                if (val && typeof val === 'object') {
+                    Object.entries(val).forEach(([k, v]) => { if (v) next.add(k); });
                 }
+                this._GetLocalReadSet().forEach(id => next.add(id));
+                this._readSet = next;
+                this.Render();
+            }, (err) => {
+                console.warn('Notification read-state listener denied:', err);
+                this._readSet = this._GetLocalReadSet();
+                this.Render();
             });
-        } else {
-            // User declined - mark as seen
-            firebase.database().ref(`Utilities/Broadcast-Services/${id}/ReadStatus/${this.userId}`).set(true);
+        } catch (e) {
+            console.warn('Notification read-state binding failed:', e);
+            this._readSet = this._GetLocalReadSet();
+            this.Render();
         }
     },
 
-    async Show(id, notif) {
-        // Double-check status in DB before showing
-        const snap = await firebase.database().ref(`Utilities/Broadcast-Services/${id}/ReadStatus/${this.userId}`).once('value');
-        if (snap.val() === true) return;
-
-        // Check permission again
-        if (Notification.permission !== "granted") {
-            console.log('Notification permission not granted');
-            return;
-        }
-
-        const icon = UIUtils?.GetIcon ? UIUtils.GetIcon(notif.type) : { emoji: '🔔' };
-        const n = new Notification(`${icon.emoji} ${notif.title}`, { 
-            body: notif.message, 
-            icon: 'assets/img/logo.png',
-            badge: '/favicon.ico',
-            vibrate: [200, 100, 200],
-            silent: false,
-            tag: id, // Prevents duplicate notifications
-            renotify: true
-        });
-
-        // Mark as seen immediately when notification appears
-        firebase.database().ref(`Utilities/Broadcast-Services/${id}/ReadStatus/${this.userId}`).set(true);
-
-        // Handle click event
-        n.onclick = () => {
-            window.focus();
-            n.close();
-            // Redirect logic
-            if (notif.link) {
-                if (typeof App !== 'undefined' && App.Router) {
-                    App.Router(notif.link);
-                } else if (notif.link.startsWith('http')) {
-                    window.open(notif.link, '_blank');
-                } else {
-                    // Handle internal routing
-                    const targetEl = document.querySelector(`[data-bs-target="${notif.link}"]`);
-                    if (targetEl) {
-                        targetEl.click();
-                    } else {
-                        window.location.hash = notif.link;
-                    }
+    MarkReadOnServer(id) {
+        if (!id || typeof firebase === 'undefined' || !firebase.database) return;
+        const path = this._GetReadPath();
+        if (!path) return;
+        try {
+            const uid = this._CurrentUserId();
+            const updates = {};
+            updates[id] = true;
+            const local = this._GetLocalReadSet();
+            local.add(id);
+            this._SaveLocalReadSet(local);
+            firebase.database().ref(path).update(updates).catch(() => {});
+            // Keep Utilities/Notifications ReadStatus in sync for direct alert records
+            if (String(id).startsWith('notif_') || String(id).startsWith('alert-')) {
+                const rawId = String(id).replace(/^(notif_|alert-)/, '');
+                const wsId = this._WorkspaceId();
+                if (uid && rawId) {
+                    const rs = {};
+                    rs[`ReadStatus/${uid}`] = 'read';
+                    firebase.database().ref(`Utilities/Notifications/${rawId}`).update(rs).catch(() => {});
+                    if (wsId) firebase.database().ref(`${wsId}/Utilities/Notifications/${rawId}`).update(rs).catch(() => {});
                 }
             }
-        };
-
-        // Auto-close after 10 seconds
-        setTimeout(() => {
-            n.close();
-        }, 10000);
+        } catch (e) {}
     },
 
-    // Helper function to check if notifications are enabled
-    IsEnabled() {
-        return "Notification" in window && Notification.permission === "granted";
-    },
-
-    // Helper function to get permission status
-    GetPermissionStatus() {
-        if (!("Notification" in window)) return 'unsupported';
-        return Notification.permission;
-    },
-
-    // Helper function to request permission manually
-    RequestManualPermission() {
-        if (!("Notification" in window)) return Promise.reject('Not supported');
-        if (Notification.permission === "granted") return Promise.resolve('granted');
-        if (Notification.permission === "denied") return Promise.reject('denied');
-        
-        return new Promise((resolve, reject) => {
-            if (confirm('🔔 Enable notifications to receive real-time alerts?')) {
-                Notification.requestPermission().then(permission => {
-                    if (permission === "granted") {
-                        resolve('granted');
-                    } else {
-                        reject('denied');
-                    }
-                });
-            } else {
-                reject('declined');
-            }
-        });
-    }
-};
-
-// Auto-initialize when the page loads
-document.addEventListener('DOMContentLoaded', function() {
-    // Wait a moment before initializing
-    setTimeout(() => {
-        if (BrowserNotificationEngine.userId) {
-            BrowserNotificationEngine.Init();
-            console.log('BrowserNotificationEngine initialized');
+    _UpdateBellIndicator(unreadCount) {
+        // Unread styling removed: read/unread state is now synchronized server-side and surfaced via the dropdown list.
+        const btn = document.getElementById('notificationDropdown');
+        const countEl = document.getElementById('notificationCount');
+        const dotEl = document.getElementById('notificationDot');
+        if (countEl) {
+            countEl.style.display = 'none';
         }
-    }, 2000);
-});
+        if (dotEl) {
+            dotEl.style.display = 'none';
+            dotEl.setAttribute('aria-hidden', 'true');
+        }
+        if (btn) {
+            btn.classList.remove('is-unread');
+            btn.setAttribute('aria-label', 'Notifications');
+            btn.setAttribute('title', 'Notifications');
+            const icon = btn.querySelector('i');
+            if (icon) icon.className = 'bi bi-bell text-muted';
+        }
+    },
 
-
-
-const UserProfileController = {
-    userId: localStorage.getItem('userloginid'),
-    userData: null,
-    userSource: null, // 'users' or 'workspace_member'
-    workspaceOwnerId: null,
+    IsMasterAdmin() {
+        const role = String(localStorage.getItem('userrole') || localStorage.getItem('role') || '').toLowerCase();
+        const masterControl = String(localStorage.getItem('masterControl') || '').toLowerCase();
+        const email = String(localStorage.getItem('useremail') || localStorage.getItem('email') || '').toLowerCase();
+        return role === 'master_admin' || role === 'super_administrator' || role === 'platform_admin' 
+            || masterControl === 'administration' || masterControl === 'master' || email.includes('admin@unitax');
+    },
 
     Init() {
-        if (!this.userId) {
-            console.error("[Profile] User ID not found.");
-            this.Notify("Error", "You must be logged in to view this page.", "danger");
-            return;
-        }
-        this.LoadUserData();
+        if (this._bound) return;
+        this._bound = true;
+        this._readSet = this._GetLocalReadSet();
+        this.BindReadStateListener();
+        this.BindFirebaseListeners();
+        this.Render();
     },
 
-    Notify(title, message, type) {
-        if (window.App && window.App.UI && window.App.UI.Notify) {
-            window.App.UI.Notify(title, message, type);
-        } else if (window.UIUtils && window.UIUtils.Notify) {
-            window.UIUtils.Notify(title, message, type);
-        } else {
-            alert(`${title}: ${message}`);
-        }
-    },
-
-    // =========================================================
-    // 1. FETCH USER DATA FROM BOTH LOCATIONS
-    // =========================================================
-    async LoadUserData() {
+    BindFirebaseListeners() {
+        if (typeof firebase === 'undefined' || !firebase.database) return;
         try {
             const db = firebase.database();
-            
-            // 🔥 FIRST: Check if user exists in Users node
-            const userSnap = await db.ref(`Users/${this.userId}`).once('value');
-            
-            if (userSnap.exists()) {
-                this.userData = userSnap.val();
-                this.userSource = 'users';
-                this.workspaceOwnerId = null;
-                console.log('✅ User found in Users node');
-                this.RenderProfile();
-                return;
-            }
+            const wsUserId = String(localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid') || (typeof App !== 'undefined' && App.State && App.State.userId) || '').trim().replace(/^#/, '');
+            const currentUserId = String(localStorage.getItem('userloginid') || localStorage.getItem('userId') || (typeof App !== 'undefined' && App.State && App.State.userId) || '').trim().replace(/^#/, '');
+            const currentUserRole = String(localStorage.getItem('userrole') || localStorage.getItem('role') || '').trim().toLowerCase();
+            const isApproverOrAdmin = ['administrator', 'co_useradmin', 'co_admin', 'approver', 'manager', 'owner', 'super_administrator', 'master_admin'].includes(currentUserRole);
 
-            // 🔥 SECOND: Search in all workspace/Members nodes
-            console.log('⏳ User not in Users node, searching in workspace/Members...');
-            
-            const allUsersSnap = await db.ref('Users').once('value');
-            const allUsers = allUsersSnap.val() || {};
-            
-            let found = false;
-            for (const [ownerId, ownerData] of Object.entries(allUsers)) {
-                const members = ownerData?.workspace?.Members || {};
-                
-                for (const [memberId, memberData] of Object.entries(members)) {
-                    if (memberId === this.userId || memberData.userId === this.userId) {
-                        // 🔥 Found user as workspace member
-                        this.userData = {
-                            ...memberData,
-                            // Merge with workspace owner data for context
-                            workspaceId: ownerData?.workspaceId || ownerId,
-                            workspaceStatus: ownerData?.workspace?.WorkspaceSettings?.workspaceStatus || ownerData?.workspaceStatus || 'active',
-                            workspaceOwnerId: ownerId,
-                            workspaceOwnerName: ownerData?.name || 'Unknown',
-                            isWorkspaceMember: true,
-                            // Use member's status if available, else owner's status
-                            status: memberData.status || ownerData?.status || 'active'
-                        };
-                        this.userSource = 'workspace_member';
-                        this.workspaceOwnerId = ownerId;
-                        found = true;
-                        console.log('✅ User found in workspace/Members of:', ownerId);
-                        break;
+            // 1. Process Platform Promotions & Feature Releases from Master Admin
+            const processBroadcasts = (snap) => {
+                if (!snap || !snap.exists()) return;
+                const data = snap.val();
+                if (!data || typeof data !== 'object') return;
+
+                const promotions = [];
+                Object.entries(data).forEach(([id, item]) => {
+                    if (!item || typeof item !== 'object') return;
+                    if (item.status && item.status !== 'active' && item.status !== 'published') return;
+
+                    // Workspace or user targeting filter
+                    if (item.audience === 'workspace' && item.targetWorkspaceId && item.targetWorkspaceId !== wsUserId) {
+                        return;
                     }
-                }
-                if (found) break;
-            }
+                    if (item.audience === 'specific_user' && item.targetUserId && item.targetUserId !== currentUserId) {
+                        return;
+                    }
 
-            if (!found) {
-                this.Notify("Error", "User profile not found in database.", "danger");
-                window.location.replace("./login.html");
-                return;
-            }
+                    const time = Number(item.timestamp || item.createdAt || item.created_at || Date.now());
+                    promotions.push({
+                        id: 'promo-' + id,
+                        category: 'promotion',
+                        isPromotion: true,
+                        title: item.title || 'Platform Promotion & Release',
+                        subtitle: item.narration || item.message || item.description || 'Master Admin feature announcement & platform update',
+                        author: item.author || 'Master Platform Admin',
+                        icon: item.icon || 'bi-megaphone-fill text-primary',
+                        ts: time,
+                        time: this._FormatRelativeTime(time),
+                        route: item.route || item.redirect || 'dashboard',
+                        tab: item.tab || '',
+                        link: item.link || ''
+                    });
+                });
 
-            this.RenderProfile();
-
-        } catch (err) {
-            console.error("Failed to load profile:", err);
-            this.Notify("Error", "Could not connect to the database.", "danger");
-        }
-    },
-
-    // =========================================================
-    // 2. POPULATE UI AND FORM FIELDS
-    // =========================================================
-    RenderProfile() {
-        const name = this.userData.name || this.userData.legalName || 'Unknown User';
-        const email = this.userData.email || 'No Email Provided';
-        const designation = this.userData.designation || this.userData.role || 'Designation not assigned';
-        const role = this.userData.role || 'User';
-        const status = this.userData.status || 'Active';
-        
-        // Generate Initials
-        const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'U';
-
-        // Format Account Creation Date
-        let joinedDate = 'Unknown';
-        const createdAt = this.userData.created_at || this.userData.createdAt || this.userData.joinedAt;
-        if (createdAt) {
-            const dateObj = new Date(createdAt);
-            joinedDate = dateObj.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
-        }
-
-        // Fill Summary Card Elements
-        const elInitials = document.getElementById('profileInitials');
-        const elName = document.getElementById('profileDisplayName');
-        const elEmail = document.getElementById('profileDisplayEmail');
-        const elRole = document.getElementById('profileRoleBadge');
-        const elJoined = document.getElementById('profileAccountCreated');
-        const elStatus = document.getElementById('profileStatusText');
-        const elUserSource = document.getElementById('profileUserSource');
-        const elWorkspaceOwner = document.getElementById('profileWorkspaceOwner');
-
-        if(elInitials) elInitials.innerText = initials;
-        if(elName) elName.innerText = name;
-        if(elEmail) elEmail.innerText = email;
-        if(elRole) elRole.innerText = role;
-        if(elJoined) elJoined.innerText = joinedDate;
-        
-        if(elStatus) {
-            elStatus.innerText = status.charAt(0).toUpperCase() + status.slice(1);
-            elStatus.className = status === 'active' ? 'fw-bold text-success mb-0' : 'fw-bold text-danger mb-0';
-        }
-
-        // Show user source
-        if(elUserSource) {
-            const sourceLabel = this.userSource === 'workspace_member' ? 'Workspace Member' : 'Primary User';
-            elUserSource.innerText = sourceLabel;
-            elUserSource.className = this.userSource === 'workspace_member' ? 'badge bg-info' : 'badge bg-primary';
-        }
-
-        // Show workspace owner info (if member)
-        if(elWorkspaceOwner) {
-            if (this.userSource === 'workspace_member' && this.workspaceOwnerId) {
-                elWorkspaceOwner.innerHTML = `
-                    <div class="small text-muted">
-                        <i class="bi bi-person-workspace me-1"></i>
-                        Workspace Owner: <strong>${this.userData.workspaceOwnerName || 'Unknown'}</strong>
-                    </div>
-                `;
-            } else {
-                elWorkspaceOwner.innerHTML = '';
-            }
-        }
-
-        // Fill Form Inputs
-        const inputName = document.getElementById('inputProfileName');
-        const inputEmail = document.getElementById('inputProfileEmail');
-        const inputDesig = document.getElementById('inputProfiledesignation');
-        const inputRole = document.getElementById('inputProfileRole');
-        const inputStatus = document.getElementById('inputProfileStatus');
-        
-        if(inputName) inputName.value = name;
-        if(inputEmail) inputEmail.value = email;
-        if(inputDesig) inputDesig.value = designation;
-        if(inputRole) inputRole.value = role;
-        if(inputStatus) inputStatus.value = status;
-
-        // 🔥 Disable fields for workspace members (read-only)
-        const isMember = this.userSource === 'workspace_member';
-        if(inputName) inputName.disabled = isMember;
-        if(inputEmail) inputEmail.disabled = isMember;
-        if(inputDesig) inputDesig.disabled = isMember;
-        if(inputRole) inputRole.disabled = isMember;
-        if(inputStatus) inputStatus.disabled = isMember;
-
-        // Show/hide save button for members
-        const saveBtn = document.getElementById('btnSaveProfile');
-        if(saveBtn) {
-            saveBtn.style.display = isMember ? 'none' : 'block';
-        }
-    },
-
-    // =========================================================
-    // 3. SAVE PROFILE (Only for Users node users)
-    // =========================================================
-    async UpdateProfile() {
-        // 🔥 Prevent workspace members from updating profile
-        if (this.userSource === 'workspace_member') {
-            this.Notify("Access Denied", "Workspace members cannot update their profile. Contact workspace owner.", "danger");
-            return;
-        }
-
-        const nameInput = document.getElementById('inputProfileName');
-        if (!nameInput) return;
-
-        const newName = nameInput.value.trim();
-        const btn = document.getElementById('btnSaveProfile');
-
-        if (!newName) {
-            this.Notify("Validation", "Name cannot be empty.", "warning");
-            return;
-        }
-
-        if (newName === this.userData.name || newName === this.userData.legalName) {
-            this.Notify("Info", "No changes were made.", "info");
-            return;
-        }
-
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
-        }
-
-        try {
-            await firebase.database().ref(`Users/${this.userId}`).update({
-                name: newName,
-                updated_at: firebase.database.ServerValue.TIMESTAMP
-            });
-
-            this.userData.name = newName;
-            this.RenderProfile();
-            localStorage.setItem('userName', newName);
-
-            this.Notify("Success", "Profile updated successfully.", "success");
-        } catch (err) {
-            console.error("Update Error:", err);
-            this.Notify("Error", "Failed to update profile.", "danger");
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-save me-1"></i> Save Changes';
-            }
-        }
-    },
-
-    // =========================================================
-    // 4. UPDATE PASSWORD (Only for Users node users)
-    // =========================================================
-    async UpdatePassword() {
-        // 🔥 Prevent workspace members from changing password
-        if (this.userSource === 'workspace_member') {
-            this.Notify("Access Denied", "Workspace members cannot change password. Contact workspace owner.", "danger");
-            return;
-        }
-
-        const currentPassInput = document.getElementById('inputCurrentPassword');
-        const newPassInput = document.getElementById('inputNewPassword');
-        const confirmPassInput = document.getElementById('inputConfirmPassword');
-        const btn = document.getElementById('btnSavePassword');
-
-        if (!currentPassInput || !newPassInput || !confirmPassInput) return;
-
-        const currentPass = currentPassInput.value;
-        const newPass = newPassInput.value;
-        const confirmPass = confirmPassInput.value;
-
-        if (!currentPass || !newPass || !confirmPass) {
-            this.Notify("Validation", "Please fill out all password fields.", "warning");
-            return;
-        }
-        if (newPass !== confirmPass) {
-            this.Notify("Validation", "New passwords do not match.", "warning");
-            return;
-        }
-        if (newPass.length < 6) {
-            this.Notify("Validation", "Password must be at least 6 characters long.", "warning");
-            return;
-        }
-        if (currentPass !== this.userData.password) {
-            this.Notify("Security", "Current password is incorrect.", "danger");
-            return;
-        }
-
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Updating...';
-        }
-
-        try {
-            await firebase.database().ref(`Users/${this.userId}`).update({
-                password: newPass,
-                updated_at: firebase.database.ServerValue.TIMESTAMP
-            });
-
-            this.userData.password = newPass;
-
-            const form = document.getElementById('passwordUpdateForm');
-            if (form) form.reset();
-
-            this.Notify("Success", "Password updated successfully.", "success");
-
-        } catch (err) {
-            console.error("Password Update Error:", err);
-            this.Notify("Error", "Failed to update password.", "danger");
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-shield-check me-1"></i> Update Password';
-            }
-        }
-    },
-
-    // =========================================================
-    // 5. GET USER TYPE (Helper)
-    // =========================================================
-    getUserType() {
-        if (this.userSource === 'workspace_member') {
-            return 'workspace_member';
-        }
-        return 'primary_user';
-    },
-
-    isWorkspaceMember() {
-        return this.userSource === 'workspace_member';
-    },
-
-    getWorkspaceOwner() {
-        if (this.isWorkspaceMember()) {
-            return {
-                id: this.workspaceOwnerId,
-                name: this.userData.workspaceOwnerName || 'Unknown'
+                this.MergeNotifications(promotions);
             };
-        }
-        return null;
-    }
-};
 
-/**
- * ========================================================================
- * UNIVERSAL MASTER DATA ENGINE & OBSERVER
- * ========================================================================
- */
+            // 2. Process Approvals assigned to user or rejected
+            const processApprovals = (snap) => {
+                if (!snap || !snap.exists()) return;
+                const data = snap.val();
+                if (!data || typeof data !== 'object') return;
 
+                const approvalNotifs = [];
 
-const MasterEngine = {
-    /**
-     * Internal State Handler for Edit Contexts
-     */
-    State: {
-        Key: 'master_edit_context',
-        Load(formId) {
-            const raw = localStorage.getItem(this.Key);
-            if (!raw) return null;
-            const data = JSON.parse(raw);
-            return data.formId === formId ? data : null;
-        },
-        Clear() {
-            localStorage.removeItem(this.Key);
-        }
-    }
-};
+                Object.entries(data).forEach(([id, req]) => {
+                    if (!req || typeof req !== 'object') return;
+                    const hdr = req.header || req;
+                    const time = Number(req.updatedAt || req.createdAt || hdr.timestamp || hdr.updatedAt || Date.now());
+                    const docNo = req.docNo || hdr.doc_no || id;
+                    const entity = req.entity || hdr.party_name || hdr.customer_name || hdr.supplier_name || 'Voucher';
+                    const rawAmt = req.amount || hdr.grand_total || hdr.amount || 0;
+                    const amtFormatted = rawAmt ? ` (₹${Number(rawAmt).toLocaleString('en-IN')})` : '';
 
-// Global Form Hydrator
-const FormObserver = new MutationObserver(() => {
-    const masterForms = document.querySelectorAll('form[data-category="Masters"]:not([data-bound="true"])');
-    
-    masterForms.forEach(form => {
-        form.dataset.bound = "true"; 
-        
-        const formId = form.id; 
-        const sheetName = form.dataset.sheet_name || formId; 
-        
-        const context = MasterEngine.State.Load(formId);
-        
-        if (context) {
-            // A. Inject Hidden ID
-            let hiddenId = document.createElement('input');
-            hiddenId.type = 'hidden';
-            hiddenId.name = 'hiddenRecordId'; 
-            hiddenId.value = context.id;
-            form.appendChild(hiddenId);
+                    const status = String(req.status || hdr.status || '').toUpperCase();
+                    const state = String(req.state || hdr.state || '').toUpperCase();
 
-            // B. Deep fill every input type correctly
-            Object.entries(context.payload).forEach(([key, value]) => {
-                const inputs = form.querySelectorAll(`[name="${key}"]`);
-                inputs.forEach(input => {
-                    if (input.type === 'radio') {
-                        input.checked = (input.value === String(value));
-                    } 
-                    else if (input.type === 'checkbox') {
-                        input.checked = (value === true || value === 'true' || value === '1' || value === input.value);
-                    } 
-                    else {
-                        input.value = value;
+                    const isRejected = status === 'REJECTED' || status === 'RETURNED' || state === 'RETURNED_TO_CREATOR' || state === 'REJECTED';
+                    const isPending = status === 'PENDING' || status === 'PENDING_APPROVAL' || state === 'PENDING' || hdr.is_draft === true || req.is_draft === true;
+
+                    const creatorId = String(req.creatorId || req.requesterId || hdr.created_by || hdr.posted_by || hdr.posted_by_id || hdr.user_id || '').trim().replace(/^#/, '');
+                    const userEmail = String(localStorage.getItem('useremail') || '').trim().toLowerCase();
+                    const isUserCreator = creatorId && (creatorId === currentUserId || creatorId.toLowerCase() === userEmail);
+                    const isApproved = status === 'APPROVED' || state === 'APPROVED' || status === 'POSTED';
+
+                    // 1. Rejection: Notify creator AND all below-level approvers
+                    if (isRejected) {
+                        const rejLevel = (req.rejectedByLevelIndex !== undefined) ? req.rejectedByLevelIndex : 0;
+                        const isBelowLevelApprover = req.hierarchy && Array.isArray(req.hierarchy) && req.hierarchy.some(h => (h.levelIndex < rejLevel) && (h.userId === currentUserId || (userEmail && h.userId === userEmail)));
+                        
+                        if (isUserCreator || isBelowLevelApprover || isApproverOrAdmin) {
+                            const reason = req.rejectionReason || hdr.rejection_reason || 'Requisition returned for originator correction.';
+                            approvalNotifs.push({
+                                id: 'approval-rej-' + id,
+                                category: 'approval',
+                                type: 'approval_rejected',
+                                title: `Approval Rejected: ${docNo}`,
+                                subtitle: `Returned with reason: ${reason}`,
+                                author: req.rejectedByUserName || req.rejectedBy || hdr.rejected_by || 'Approving Authority',
+                                icon: 'bi-x-circle-fill text-danger',
+                                ts: time,
+                                time: this._FormatRelativeTime(time),
+                                route: 'reports/approvalmanagementsystem',
+                                tab: isUserCreator ? 'creator-view' : 'inbox-view',
+                                link: ''
+                            });
+                        }
+                    } else if (isApproved) {
+                        // 2. Full Approval: Statutory Governance requires notifying Initiator ONLY
+                        if (isUserCreator) {
+                            approvalNotifs.push({
+                                id: 'approval-appr-' + id,
+                                category: 'approval',
+                                type: 'approval_completed',
+                                title: `Application Fully Approved: ${docNo}`,
+                                subtitle: `Verified and fully authorized across all hierarchy levels.`,
+                                author: 'Governance Matrix',
+                                icon: 'bi-check-circle-fill text-success',
+                                ts: time,
+                                time: this._FormatRelativeTime(time),
+                                route: 'reports/approvalmanagementsystem',
+                                tab: 'creator-view',
+                                link: ''
+                            });
+                        }
+                    } else if (isPending && !isRejected) {
+                        // 3. Assignment: Sequential alert to newly assigned level approver
+                        let assignedTo = '';
+                        if (req.hierarchy && Array.isArray(req.hierarchy) && req.currentLevelIndex !== undefined && req.hierarchy[req.currentLevelIndex]) {
+                            assignedTo = String(req.hierarchy[req.currentLevelIndex].userId || '').trim().replace(/^#/, '');
+                        } else {
+                            assignedTo = String(req.assignedTo || req.assignedManagerId || req.assignedUserId || req.currentAssignee || hdr.assigned_manager_id || '').trim().replace(/^#/, '');
+                        }
+
+                        const isAssigned = (assignedTo && (assignedTo === currentUserId || (userEmail && assignedTo.toLowerCase() === userEmail))) 
+                            || (isApproverOrAdmin && (!assignedTo || assignedTo === currentUserId || assignedTo === 'Administrator'));
+
+                        if (isAssigned) {
+                            approvalNotifs.push({
+                                id: 'approval-asn-' + id,
+                                category: 'approval',
+                                type: 'approval_assigned',
+                                title: `Approval Assigned: ${docNo}${amtFormatted}`,
+                                subtitle: `${entity} draft awaiting your authorization and approval.`,
+                                author: req.requesterName || hdr.posted_by_name || 'Workflow System',
+                                icon: 'bi-shield-exclamation text-warning',
+                                ts: time,
+                                time: this._FormatRelativeTime(time),
+                                route: 'reports/approvalmanagementsystem',
+                                tab: (req.voucherType || req.formId) ? 'vouchers-view' : 'inbox-view',
+                                link: ''
+                            });
+                        }
                     }
                 });
-            });
 
-            // C. Update UI Button
-            const submitBtn = form.querySelector('button[type="submit"]');
-            if (submitBtn) {
-                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Update Record';
-                submitBtn.classList.replace('btn-success', 'btn-primary');
+                this.MergeNotifications(approvalNotifs);
+            };
+
+            // Approvals listeners
+            db.ref('Utilities/Requests').limitToLast(30).on('value', processApprovals);
+            db.ref('Governance/Approvals').limitToLast(30).on('value', processApprovals);
+            if (wsUserId) {
+                db.ref(`${wsUserId}/Utilities/Requests`).limitToLast(30).on('value', processApprovals);
+                db.ref(`${wsUserId}/Governance/Approvals`).limitToLast(30).on('value', processApprovals);
             }
 
-            const title = form.closest('.card-body')?.querySelector('h5');
-            if (title) title.innerHTML = `Edit ${title.innerText}`;
+            // Master Admin Platform Promotions & Releases listeners
+            db.ref('PlatformMaster/Promotions').limitToLast(25).on('value', processBroadcasts);
+            db.ref('PlatformMaster/Broadcasts').limitToLast(25).on('value', processBroadcasts);
+            db.ref('Utilities/Broadcasts').limitToLast(25).on('value', processBroadcasts);
+            if (wsUserId) {
+                db.ref(`${wsUserId}/PlatformMaster/Broadcasts`).limitToLast(25).on('value', processBroadcasts);
+                db.ref(`${wsUserId}/Utilities/Broadcasts`).limitToLast(25).on('value', processBroadcasts);
+            }
 
-            MasterEngine.State.Clear(formId);
-        }
+            // Direct System Alert Notifications (Utilities/Notifications)
+            const processNotifications = (snap) => {
+                if (!snap || !snap.exists()) return;
+                const data = snap.val();
+                if (!data || typeof data !== 'object') return;
+                const directNotifs = [];
+                const userEmail = String(localStorage.getItem('useremail') || '').trim().toLowerCase();
+                const userName = String(localStorage.getItem('userName') || localStorage.getItem('username') || '').trim().toLowerCase();
+                const myIds = [currentUserId, wsUserId, userEmail, userName].filter(Boolean).map(x => String(x).trim().toLowerCase());
 
-        // Universal Submit Listener
-        form.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const submitBtn = form.querySelector('button[type="submit"]');
-            const originalHtml = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-            submitBtn.disabled = true;
+                Object.entries(data).forEach(([id, n]) => {
+                    if (!n || typeof n !== 'object') return;
+                    const target = String(n.target || n.userId || '').trim().toLowerCase();
+                    const isForMe = target === 'all' || myIds.includes(target) || (target && myIds.some(m => m && (m === target || m.includes(target) || target.includes(m))));
+                    if (!isForMe) return;
 
-            const formData = new FormData(form);
-            const payload = Object.fromEntries(formData.entries());
-            
-            form.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach(cb => {
-                if (cb.name) payload[cb.name] = false; 
-            });
+                    const time = Number(n.timestamp || Date.now());
+                    const type = String(n.type || '').toLowerCase();
+                    const isError = type === 'error' || type === 'danger' || type === 'warning';
+                    const isSuccess = type === 'success';
+                    const claimedId = n.dedupeKey ? String(n.dedupeKey) : ('notif_' + id);
 
-            const recordId = payload.hiddenRecordId;
-            delete payload.hiddenRecordId; 
+                    directNotifs.push({
+                        id: claimedId,
+                        category: 'approval',
+                        type: isError ? 'approval_rejected' : (isSuccess ? 'approval_completed' : 'approval_assigned'),
+                        title: n.title || 'Approval System Alert',
+                        subtitle: n.message || n.text || '',
+                        author: n.sender || 'Governance Authority',
+                        icon: isError ? 'bi-x-circle-fill text-danger' : (isSuccess ? 'bi-check-circle-fill text-success' : 'bi-shield-check text-warning'),
+                        ts: time,
+                        time: this._FormatRelativeTime(time),
+                        route: n.link || 'reports/approvalmanagementsystem',
+                        tab: n.tab || 'inbox-view',
+                        link: n.link || '',
+                        sourceId: id
+                    });
+                });
 
-            try {
-                if (recordId) {
-                    await API.Update(`Masters/${sheetName}/${recordId}`, payload);
-                    alert(`${formId} Updated Successfully!`);
-                } else {
-                    payload.createdAt = new Date().toISOString();
-                    await API.SaveMaster(`${sheetName}`, payload);
-                    // alert(`${formId} Created Successfully!`);
+                this.MergeNotifications(directNotifs);
+            };
+
+            db.ref('Utilities/Notifications').limitToLast(30).on('value', processNotifications);
+            if (wsUserId) {
+                db.ref(`${wsUserId}/Utilities/Notifications`).limitToLast(30).on('value', processNotifications);
+            }
+
+            // Default fallback master promotion
+            setTimeout(async () => {
+                if (this._items.length === 0) {
+                    const defaultNotice = {
+                        id: 'promo-welcome',
+                        category: 'promotion',
+                        isPromotion: true,
+                        title: 'Platform Feature Release: Governance & Approval Hub Active',
+                        subtitle: 'Review multi-tier approval matrix, pending voucher drafts, and initiate requests.',
+                        author: 'Master Platform Admin',
+                        icon: 'bi-megaphone-fill text-primary',
+                        time: 'Just now',
+                        route: 'reports/approvalmanagementsystem',
+                        tab: 'vouchers-view'
+                    };
+                    this.MergeNotifications([defaultNotice]);
                 }
-                
-                var listRoute = `masters/${formId.toLowerCase()}-list`;
-                listRoute= `masters/${form.getAttribute("data-listattribute")}-list`
-                if (typeof App !== 'undefined' && App.Router) App.Router(listRoute); 
-                
-            } catch (error) {
-                alert('Error saving data: ' + error.message);
-                submitBtn.innerHTML = originalHtml;
-                submitBtn.disabled = false;
+            }, 1200);
+
+        } catch (e) {
+            console.warn('NotificationEngine init error:', e);
+        }
+    },
+
+    _FormatRelativeTime(ts) {
+        if (!ts) return 'Recent';
+        const diff = Math.floor((Date.now() - Number(ts)) / 1000);
+        if (isNaN(diff) || diff < 0) return 'Just now';
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return `${Math.floor(diff / 86400)}d ago`;
+    },
+
+    MergeNotifications(newItems) {
+        if (!Array.isArray(newItems)) return;
+        const existingMap = new Map();
+        this._items.forEach(it => existingMap.set(it.id, it));
+
+        newItems.forEach(it => {
+            if (!it || !it.id) return;
+            // STRICT FILTER:
+            // 1. Platform Promotions & Feature Releases from Master Admin
+            // 2. Any approval assigned to user or rejected
+            const isPromo = it.category === 'promotion' || it.isPromotion || it.source === 'PlatformMaster';
+            const isApproval = it.category === 'approval' || it.type === 'approval_assigned' || it.type === 'approval_rejected' || it.type === 'approval_completed';
+            if (isPromo || isApproval) {
+                existingMap.set(it.id, it);
             }
         });
-    });
-});
 
-FormObserver.observe(document.body, { childList: true, subtree: true });
+        const validItems = Array.from(existingMap.values()).filter(it => {
+            const isPromo = it.category === 'promotion' || it.isPromotion || it.source === 'PlatformMaster';
+            const isApproval = it.category === 'approval' || it.type === 'approval_assigned' || it.type === 'approval_rejected' || it.type === 'approval_completed';
+            return isPromo || isApproval;
+        });
 
+        this._items = validItems
+            .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))
+            .slice(0, 30);
+        this.Render();
+    },
 
-// Delay initialization slightly to ensure Firebase is fully loaded
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        if (typeof firebase !== 'undefined') {
-            // UserProfileController.LoadUserData();
-            NotificationEngine.Init();
-            // NotificationPageController.Init();
+    // Strict push filter: allows platform promotions and approval assignment/rejection/completion
+    Push(customAlert) {
+        if (!customAlert) return;
+        if (customAlert.category === 'setting_update' || customAlert.source === 'settings') return;
 
-        } else {
-            console.error("Firebase is not loaded! Notifications cannot start.");
+        const isPromo = customAlert.category === 'promotion' || customAlert.isPromotion || customAlert.source === 'PlatformMaster';
+        const isApproval = customAlert.category === 'approval' || customAlert.type === 'approval_assigned' || customAlert.type === 'approval_rejected' || customAlert.type === 'approval_completed';
+
+        if (!isPromo && !isApproval) return;
+
+        const id = customAlert.id || (isPromo ? 'promo-' : 'approval-') + Date.now();
+        const ts = Number(customAlert.ts || customAlert.timestamp || Date.now());
+        this._items.unshift({
+            id: id,
+            category: isPromo ? 'promotion' : 'approval',
+            isPromotion: isPromo,
+            type: customAlert.type || (isPromo ? 'promotion' : 'approval_assigned'),
+            title: customAlert.title || (isPromo ? 'Platform Promotion & Release' : 'Approval Update'),
+            subtitle: customAlert.message || customAlert.subtitle || '',
+            author: customAlert.author || (isPromo ? 'Master Platform Admin' : 'Governance Authority'),
+            icon: customAlert.icon || (isPromo ? 'bi-megaphone-fill text-primary' : 'bi-shield-check text-warning'),
+            ts: ts,
+            time: this._FormatRelativeTime(ts),
+            route: customAlert.route || 'reports/approvalmanagementsystem',
+            tab: customAlert.tab || '',
+            link: customAlert.link || ''
+        });
+        this.MergeNotifications([]);
+    },
+
+    OpenNotice(route, tab, link, event, id) {
+        if (id) {
+            try {
+                // Optimistic local state; authoritative read/unread comes from server listener.
+                this._readSet.add(id);
+                this.MarkReadOnServer(id);
+                this.Render();
+            } catch(e) {}
         }
-    }, 500);
-});
+
+        // 1. Close dropdown if open
+        const notifBtn = document.getElementById('notificationDropdown');
+        if (notifBtn && typeof bootstrap !== 'undefined' && bootstrap.Dropdown) {
+            const bsDropdown = bootstrap.Dropdown.getInstance(notifBtn);
+            if (bsDropdown) bsDropdown.hide();
+        }
+
+        // 2. Handle external link
+        if (link && link.startsWith('http')) {
+            if (event) event.preventDefault();
+            window.open(link, '_blank');
+            return;
+        }
+
+        const targetRoute = route || (link ? link.replace(/^#\/?/, '').split('?')[0] : 'dashboard');
+        
+        // 3. Navigate to module via router
+        if (window.App && typeof App.Router === 'function') {
+            if (event) event.preventDefault();
+            App.Router(targetRoute);
+        } else {
+            window.location.hash = '#/' + targetRoute;
+        }
+
+        // 4. Switch tab if tab specified
+        if (tab) {
+            const activateTab = () => {
+                const tabBtn = document.querySelector(`[data-bs-target="#${tab}"]`)
+                            || document.querySelector(`[data-bs-target="${tab}"]`)
+                            || document.querySelector(`button[onclick*="${tab}"]`)
+                            || document.getElementById(tab);
+                if (tabBtn) {
+                    tabBtn.click();
+                    if (typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+                        const bsTab = bootstrap.Tab.getOrCreateInstance(tabBtn);
+                        bsTab.show();
+                    }
+                }
+            };
+            setTimeout(activateTab, 200);
+            setTimeout(activateTab, 500);
+        }
+    },
+
+    OpenBroadcastModal() {
+        if (!this.IsMasterAdmin()) {
+            if (typeof App !== 'undefined' && App.UI && typeof App.UI.Notify === 'function') {
+                App.UI.Notify('Permission Denied', 'Broadcast announcements are strictly restricted to the Master Platform Admin.', 'danger');
+            } else {
+                alert('Broadcast announcements are strictly restricted to the Master Platform Admin.');
+            }
+            return;
+        }
+        let modalEl = document.getElementById('adminBroadcastModal');
+        if (!modalEl) {
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <div class="modal fade" id="adminBroadcastModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content border-0 shadow">
+                            <div class="modal-header bg-primary text-white py-3">
+                                <h6 class="modal-title fw-bold"><i class="bi bi-broadcast me-2"></i>Master Admin Platform Broadcast</h6>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body p-4">
+                                <form id="broadcastAlertForm" onsubmit="event.preventDefault(); NotificationEngine.SubmitBroadcast();">
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">Broadcast Subject / Title <span class="text-danger">*</span></label>
+                                        <input type="text" id="bcTitle" class="form-control form-control-sm" placeholder="e.g. Platform Feature Release: Automated E-Invoicing" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold">Message / Announcement Content <span class="text-danger">*</span></label>
+                                        <textarea id="bcMessage" class="form-control form-control-sm" rows="3" placeholder="Provide clear instructions or operational directive for team members..." required></textarea>
+                                    </div>
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-7">
+                                            <label class="form-label small fw-bold">Destination Module Route</label>
+                                            <select id="bcRoute" class="form-select form-select-sm">
+                                                <option value="reports/approvalmanagementsystem" selected>Governance & Approval Center</option>
+                                                <option value="masters/project-list">Profit Center Registry</option>
+                                                <option value="masters/company-list">Company Registry</option>
+                                                <option value="reports/balance-sheet">Balance Sheet Statement</option>
+                                                <option value="reports/profit-loss">Profit & Loss Statement</option>
+                                                <option value="reports/cash-flow">Cash Flow Statement</option>
+                                                <option value="utilities/useradmincontrolpanel">User Admin Control Panel</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-5">
+                                            <label class="form-label small fw-bold">Destination Tab</label>
+                                            <select id="bcTab" class="form-select form-select-sm">
+                                                <option value="vouchers-view">Voucher Approvals</option>
+                                                <option value="creator-view">Initiator Hub</option>
+                                                <option value="inbox-view">Approver Review</option>
+                                                <option value="create-view">New Request</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold">Priority / Urgency</label>
+                                            <select id="bcPriority" class="form-select form-select-sm">
+                                                <option value="normal" selected>Standard Notice</option>
+                                                <option value="urgent">Urgent Directive</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold">Broadcast Category</label>
+                                            <input type="text" id="bcCategory" class="form-control form-control-sm" value="Platform Release">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex justify-content-end gap-2 mt-4 pt-2 border-top">
+                                        <button type="button" class="btn btn-light btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-primary btn-sm px-4 fw-bold">
+                                            <i class="bi bi-broadcast me-1"></i> Broadcast to Workspace
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(div);
+            modalEl = document.getElementById('adminBroadcastModal');
+        }
+
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+    },
+
+    async SubmitBroadcast() {
+        if (!this.IsMasterAdmin()) {
+            alert('Broadcast announcements are strictly restricted to the Master Platform Admin.');
+            return;
+        }
+        const title = document.getElementById('bcTitle')?.value?.trim();
+        const message = document.getElementById('bcMessage')?.value?.trim();
+        const route = document.getElementById('bcRoute')?.value?.trim() || 'reports/approvalmanagementsystem';
+        const tab = document.getElementById('bcTab')?.value?.trim() || '';
+        const priority = document.getElementById('bcPriority')?.value || 'normal';
+        const category = document.getElementById('bcCategory')?.value?.trim() || 'Platform Release';
+
+        if (!title || !message) {
+            alert('Title and Message are required.');
+            return;
+        }
+
+        const author = localStorage.getItem('username') || localStorage.getItem('userName') || 'Master Platform Admin';
+        const wsUserId = String(localStorage.getItem('workspaceUserId') || localStorage.getItem('userloginid') || (typeof App !== 'undefined' && App.State && App.State.userId) || '').trim().replace(/^#/, '');
+
+        const payload = {
+            title: title,
+            message: message,
+            narration: message,
+            route: route,
+            tab: tab,
+            author: author,
+            priority: priority,
+            category: category,
+            timestamp: Date.now()
+        };
+
+        try {
+            if (typeof firebase !== 'undefined' && firebase.database) {
+                const db = firebase.database();
+                await db.ref('PlatformMaster/Promotions').push(payload);
+                await db.ref('PlatformMaster/Broadcasts').push(payload);
+                await db.ref('Utilities/Broadcasts').push(payload);
+                if (wsUserId) {
+                    await db.ref(`${wsUserId}/PlatformMaster/Broadcasts`).push(payload);
+                    await db.ref(`${wsUserId}/Utilities/Broadcasts`).push(payload);
+                }
+            }
+            const modalEl = document.getElementById('adminBroadcastModal');
+            if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+            if (typeof App !== 'undefined' && App.UI && typeof App.UI.Notify === 'function') {
+                App.UI.Notify('Broadcast Published', 'Announcement broadcasted to all workspace users with direct deep-links.', 'success');
+            } else {
+                alert('Broadcast published successfully.');
+            }
+        } catch (err) {
+            console.error('Broadcast failed:', err);
+            alert('Failed to publish broadcast: ' + err.message);
+        }
+    },
+
+    Render() {
+        const bcBtn = document.getElementById('btnAdminBroadcast');
+        if (bcBtn) {
+            bcBtn.style.display = this.IsMasterAdmin() ? 'inline-block' : 'none';
+        }
+
+        const listEl = document.getElementById('notificationList');
+        if (!listEl) return;
+
+        const readSet = this._readSet || new Set();
+        // Latest-first presentation (authoritative sort by generated timestamp)
+        const items = (this._items || []).slice().sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+        const unreadItems = items.filter(it => !readSet.has(it.id));
+        this._unreadCount = unreadItems.length;
+        this._UpdateBellIndicator(this._unreadCount);
+
+        if (items.length === 0) {
+            listEl.innerHTML = `
+                <div class="text-center p-3 text-muted small" id="emptyNotificationMessage">
+                    <i class="bi bi-bell-slash d-block fs-4 text-muted mb-1"></i> No broadcasts or pending approvals
+                </div>
+            `;
+            return;
+        }
+
+        const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        let html = '';
+        items.forEach(item => {
+            const isRead = readSet.has(item.id);
+            const targetHref = item.link || ('#/' + (item.route || 'dashboard'));
+            
+            // Entire div of single notification acts as an anchor tag; no inner buttons or badges
+            html += `
+                <a href="${esc(targetHref)}" 
+                   class="dropdown-item p-2 border-bottom text-decoration-none d-block notification-anchor-item ${isRead ? 'opacity-75' : 'bg-light bg-opacity-25'}" 
+                   style="cursor: pointer; transition: background 0.15s, opacity 0.15s; white-space: normal;"
+                   onclick="NotificationEngine.OpenNotice('${esc(item.route || '')}', '${esc(item.tab || '')}', '${esc(item.link || '')}', event, '${esc(item.id || '')}')">
+                    <div class="d-flex align-items-start gap-2 h-100">
+                        <i class="bi ${esc(item.icon || 'bi-bell-fill')} fs-5 mt-1 flex-shrink-0"></i>
+                        <div class="flex-grow-1 overflow-hidden d-flex flex-column justify-content-center">
+                            <div class="d-flex justify-content-between align-items-baseline">
+                                <span class="fw-bold text-dark text-truncate d-block" style="font-size: 12px;">${esc(item.title)}</span>
+                                <span class="text-muted font-mono ms-2 flex-shrink-0" style="font-size: 10px;">${esc(item.time)}</span>
+                            </div>
+                            <div class="text-secondary small mt-1 notification-anchor-subtitle">${esc(item.subtitle)}</div>
+                        </div>
+                    </div>
+                </a>
+            `;
+        });
+        listEl.innerHTML = html;
+    }
+};
+const BrowserNotificationEngine = {
+    Init() {
+        // Browser notification engine hook
+    }
+};
+
+// Auto-boot: immediate if DOM is already parsed, or listen for DOMContentLoaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => App.Init());
+} else {
+    App.Init();
+}
+
+window.App = App;
 

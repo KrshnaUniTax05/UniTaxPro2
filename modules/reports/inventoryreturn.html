@@ -1,63 +1,87 @@
 <div class="animate-in">
     <div class="card border-0 shadow-sm overflow-hidden main-card-wrapper">
         <div class="card-body p-0 border-bottom bg-light">
-            <div class="d-flex justify-content-between align-items-center p-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center p-3 gap-2 unitax-header">
                 <div>
-                    <h5 class="fw-bold mb-0 text-dark" id="reportTitle">Stock Summary</h5>
-                    <p class="text-muted small mb-0" id="reportSubtitle">Real-time Inventory Valuation & Movement</p>
+                    <h5 class="fw-bold mb-0 text-dark" id="reportTitle">
+                        <i class="bi bi-boxes text-primary me-2"></i>Stock Valuation & Inventory Register
+                    </h5>
+                    <p class="text-muted small mb-0" id="reportSubtitle">Real-time valuation, FIFO average cost, and movement audit trail</p>
                 </div>
-                <div class="d-flex gap-2 align-items-end">
-                    <div>
+                <div class="d-flex flex-wrap gap-2 align-items-end">
+                    <div style="min-width: 120px;">
                         <label class="small fw-bold text-muted mb-1">Group By</label>
-                        <select id="stockGroupBy" class="form-select form-select shadow-sm" onchange="generateStockSummary()">
+                        <select id="stockGroupBy" class="form-select form-select-sm shadow-sm" onchange="generateStockSummary()">
                             <option value="item">Item-wise</option>
                             <option value="hsn">HSN-wise</option>
                         </select>
                     </div>
-                    <div>
+                    <div style="min-width: 130px;">
                         <label class="small fw-bold text-muted mb-1">From Date</label>
                         <input type="date" id="stockFromDate" class="form-control form-control-sm shadow-sm" onchange="generateStockSummary()">
                     </div>
-                    <div>
+                    <div style="min-width: 130px;">
                         <label class="small fw-bold text-muted mb-1">To Date</label>
                         <input type="date" id="stockToDate" class="form-control form-control-sm shadow-sm" onchange="generateStockSummary()">
                     </div>
-                    <button type="button" title="Back to Summary" id="btnBackToSummary" class="btn btn-dark btn-sm shadow-sm fw-bold px-2 mb-0" style="display: none;" onclick="showSummaryView()">
-                        <i class="bi bi-arrow-left"></i>
-                    </button>
-                    <button type="button" title="Refresh Data" class="btn btn-primary btn-sm shadow-sm fw-bold px-2 mb-0" onclick="generateStockSummary()">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
+                    <div class="d-flex gap-1 align-items-center">
+                        <button type="button" id="btnBackToSummary" class="btn btn-erp-icon shadow-sm" style="display: none;" onclick="showSummaryView()" title="Back to Stock Summary">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+                        <button type="button" class="btn btn-erp-icon btn-erp-icon-primary shadow-sm" onclick="generateStockSummary()" title="Refresh Valuation">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                        <button type="button" class="btn btn-erp-icon shadow-sm" onclick="exportStockCSV()" title="Export Stock Register to CSV">
+                            <i class="bi bi-file-earmark-arrow-down"></i>
+                        </button>
+                        <button type="button" class="btn btn-erp-icon shadow-sm" onclick="window.print()" title="Print Stock Valuation Report">
+                            <i class="bi bi-printer"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div id="viewStockSummary" class="p-0 table-responsive print-table-wrapper" style="max-height: calc(100vh - 200px); overflow-y: auto;">
-            <table class="table table-sm table-hover table-bordered mb-0 align-middle master-print-table" style="font-size: 0.85rem;">
-                <thead class="table-dark sticky-top">
-                    <tr class="text-center align-middle">
-                        <th rowspan="2" class="text-start ps-3" width="20%">Item</th>
-                        <th rowspan="2"  width="5%">HSN</th>
-                        <th rowspan="2" width="5%">Unit</th>
-                        <th colspan="2" class="bg-secondary bg-opacity-25">Opening Balance</th>
-                        <th colspan="2" class="bg-transparent bg-opacity-25">Inwards</th>
-                        <th colspan="2" class="bg-danger bg-opacity-25">Outwards</th>
-                        <th colspan="3" class="bg-success bg-opacity-25">Closing Balance</th>
+        <div id="viewStockSummary" class="p-0 table-responsive print-table-wrapper w-100" style="width: 100% !important; min-width: 100%; max-height: calc(100vh - 200px); overflow-y: auto;">
+            <table class="table table-sm table-hover table-bordered mb-0 align-middle master-print-table w-100" style="font-size: 0.85rem; width: 100% !important; min-width: 100%; table-layout: fixed;">
+                <colgroup>
+                    <col style="width: 22%;">
+                    <col style="width: 8%;">
+                    <col style="width: 5%;">
+                    <col style="width: 7%;">
+                    <col style="width: 9%;">
+                    <col style="width: 7%;">
+                    <col style="width: 9%;">
+                    <col style="width: 7%;">
+                    <col style="width: 9%;">
+                    <col style="width: 6%;">
+                    <col style="width: 5%;">
+                    <col style="width: 6%;">
+                </colgroup>
+                <thead class="bg-dark text-white sticky-top" style="background-color: #0f172a !important;">
+                    <tr class="text-center align-middle border-bottom border-secondary">
+                        <th rowspan="2" class="text-start ps-3 py-2 text-white">Item Description & Code</th>
+                        <th rowspan="2" class="text-white">HSN</th>
+                        <th rowspan="2" class="text-white">UQC</th>
+                        <th colspan="2" class="border-start border-end border-secondary py-1 text-white bg-dark">Opening Balance</th>
+                        <th colspan="2" class="border-end border-secondary py-1 text-white bg-dark">Inwards (Purchase/Ret)</th>
+                        <th colspan="2" class="border-end border-secondary py-1 text-white bg-dark">Outwards (Sales/Ret)</th>
+                        <th colspan="3" class="py-1 text-white bg-dark">Closing Valuation</th>
                     </tr>
-                    <tr class="text-center">
-                        <th class="bg-secondary bg-opacity-25">Qty</th>
-                        <th class="bg-secondary bg-opacity-25">Value</th>
-                        <th class="bg-transparent bg-opacity-25">Qty</th>
-                        <th class="bg-transparent bg-opacity-25">Value</th>
-                        <th class="bg-danger bg-opacity-25">Qty</th>
-                        <th class="bg-danger bg-opacity-25">Value</th>
-                        <th class="bg-success bg-opacity-25">Qty</th>
-                        <th class="bg-success bg-opacity-25">Avg Rate</th>
-                        <th class="bg-success bg-opacity-25 pe-3">Value</th>
+                    <tr class="text-center border-bottom border-secondary text-white small" style="font-size: 11px;">
+                        <th class="border-start border-secondary py-1">Qty</th>
+                        <th class="border-end border-secondary py-1">Value (₹)</th>
+                        <th class="py-1">Qty</th>
+                        <th class="border-end border-secondary py-1">Value (₹)</th>
+                        <th class="py-1">Qty</th>
+                        <th class="border-end border-secondary py-1">Value (₹)</th>
+                        <th class="py-1">Qty</th>
+                        <th class="py-1">Avg Rate</th>
+                        <th class="pe-3 py-1">Valuation (₹)</th>
                     </tr>
                 </thead>
                 <tbody id="stockSummaryBody">
-                    <tr><td colspan="11" class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> Loading inventory data...</td></tr>
+                    <tr><td colspan="12" class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div> Loading inventory data...</td></tr>
                 </tbody>
                 <tfoot class="table-light fw-bold sticky-bottom shadow-sm">
                     <tr class="text-end px-3">
@@ -71,17 +95,26 @@
             </table>
         </div>
 
-        <div id="viewItemLedger" class="p-0 table-responsive print-table-wrapper" style="display: none; max-height: calc(100vh - 200px); overflow-y: auto;">
-            <table class="table table-sm table-hover mb-0 align-middle master-print-table" style="font-size: 0.85rem;">
+        <div id="viewItemLedger" class="p-0 table-responsive print-table-wrapper w-100" style="display: none; width: 100% !important; min-width: 100%; max-height: calc(100vh - 200px); overflow-y: auto;">
+            <table class="table table-sm table-hover mb-0 align-middle master-print-table w-100" style="font-size: 0.85rem; width: 100% !important; min-width: 100%; table-layout: fixed;">
+                <colgroup>
+                    <col style="width: 10%;">
+                    <col style="width: 15%;">
+                    <col style="width: 15%;">
+                    <col style="width: 25%;">
+                    <col style="width: 10%;">
+                    <col style="width: 10%;">
+                    <col style="width: 15%;">
+                </colgroup>
                 <thead class="table-dark sticky-top">
                     <tr>
-                        <th class="ps-3" width="10%">Date</th>
-                        <th width="15%">Vch Type</th>
-                        <th width="15%">Vch No.</th>
-                        <th width="25%">Particulars (Party)</th>
-                        <th class="text-end text-secondary" width="10%">Inward Qty</th>
-                        <th class="text-end text-danger" width="10%">Outward Qty</th>
-                        <th class="text-end pe-3" width="15%">Balance Qty</th>
+                        <th class="ps-3">Date</th>
+                        <th>Vch Type</th>
+                        <th>Vch No.</th>
+                        <th>Particulars (Party)</th>
+                        <th class="text-end text-secondary">Inward Qty</th>
+                        <th class="text-end text-danger">Outward Qty</th>
+                        <th class="text-end pe-3">Balance Qty</th>
                     </tr>
                 </thead>
                 <tbody id="itemLedgerBody">
@@ -269,11 +302,16 @@
 
     // --- FETCH ALL TRANSACTIONS (Enhanced) ---
     async function fetchAllTransactions() {
-        let types = await API.GetAllTransactionTypes().catch(() => [
-            'SalesInvoiceForm', 'SalesReturnForm', 'CreditNoteForm', 
-            'PurchaseInvoiceForm', 'PurchaseReturnForm', 'DebitNoteForm',
-            'SalesInvoice', 'PurchaseInvoice', 'StockTransfer'
-        ]);
+        let types = (window.API && typeof API.GetAllTransactionTypes === 'function')
+            ? await API.GetAllTransactionTypes().catch(() => null)
+            : null;
+        if (!types || !Array.isArray(types)) {
+            types = [
+                'SalesInvoiceForm', 'SalesReturnForm', 'CreditNoteForm', 
+                'PurchaseInvoiceForm', 'PurchaseReturnForm', 'DebitNoteForm',
+                'PaymentVoucherForm', 'ReceiptVoucherForm', 'ReceiptPayForm'
+            ];
+        }
         
         let allTransactions = [];
         let fetchPromises = [];
@@ -284,15 +322,18 @@
                     .then(data => {
                         if (data) {
                             Object.entries(data).forEach(([key, vch]) => {
-                                // Ensure formId is set
-                                allTransactions.push({ 
-                                    ...vch, 
-                                    key, 
-                                    formId: type,
-                                    // Normalize fields
-                                    header: vch.header || vch.meta || {},
-                                    items: extractItemsFromVoucher(vch)
-                                });
+                                // Exclude soft-deleted and draft/pending transactions
+                                const isDeleted = vch.is_deleted === true || (vch.header && vch.header.is_deleted === true) || vch.status === 'DELETED' || (vch.header && vch.header.status === 'DELETED');
+                                const isDraftOrPending = vch.status === 'DRAFT' || vch.status === 'PENDING_APPROVAL' || (vch.header && (vch.header.status === 'DRAFT' || vch.header.status === 'PENDING_APPROVAL'));
+                                if (!isDeleted && !isDraftOrPending) {
+                                    allTransactions.push({ 
+                                        ...vch, 
+                                        key, 
+                                        formId: type,
+                                        header: vch.header || vch.meta || {},
+                                        items: extractItemsFromVoucher(vch)
+                                    });
+                                }
                             });
                             console.log(`✅ Loaded ${Object.keys(data).length} transactions from ${type}`);
                         }
@@ -551,6 +592,35 @@
     }
 
     // --- VIEW CONTROLLERS (Item Ledger) ---
+    
+    // --- EXPORT CSV FUNCTION ---
+    window.exportStockCSV = function() {
+        const rows = [];
+        rows.push(['Item Description', 'Code', 'HSN', 'Unit', 'Opening Qty', 'Opening Value', 'Inward Qty', 'Inward Value', 'Outward Qty', 'Outward Value', 'Closing Qty', 'Avg Rate', 'Closing Valuation']);
+        
+        Object.values(globalStockData).forEach(item => {
+            const clQty = item.opQty + item.inQty - item.outQty;
+            const clVal = item.opVal + item.inVal - item.outVal;
+            const avgRate = clQty > 0 ? (clVal / clQty) : 0;
+            rows.push([
+                `"${item.name}"`, item.code, item.hsn, item.unit,
+                item.opQty, item.opVal.toFixed(2),
+                item.inQty, item.inVal.toFixed(2),
+                item.outQty, item.outVal.toFixed(2),
+                clQty, avgRate.toFixed(2), clVal.toFixed(2)
+            ]);
+        });
+
+        const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Stock_Valuation_${document.getElementById('stockToDate').value}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     window.showItemLedger = function(mapKey) {
         document.getElementById('viewStockSummary').style.display = 'none';
         document.getElementById('viewItemLedger').style.display = 'block';
@@ -640,36 +710,3 @@
 
 })();
 </script>
-<style>
-    /* Table Container Styling */
-    #viewStockSummary .table-responsive {
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-    }
-
-    /* Target all standard data cells */
-    #viewStockSummary .table td, 
-    #viewStockSummary .table th { 
-        font-size: 13px !important;
-        padding: 6px 10px !important; /* Balanced padding for readability */
-        vertical-align: middle;
-        border: solid 1px var(--apple-system);
-    }
-
-    /* Specific override for tbody cells */
-    #viewStockSummary tbody td { 
-        min-height: 12px !important;
-        /* Using padding instead of margin for table cells, as margin does not work on td elements */
-        padding: 4px 10px !important; 
-    }
-
-    /* Optional: Zebra striping for better readability */
-    #viewStockSummary tbody tr:nth-of-type(odd) {
-        background-color: rgba(0,0,0,0.02);
-    }
-
-    /* Optional: Hover effect */
-    #viewStockSummary tbody tr:hover {
-        background-color: rgba(0,0,0,0.05);
-    }
-</style>

@@ -1,276 +1,328 @@
-<div class="container-fluid py-4">
-    <div class="row">
-        
-        <div class="col-lg-4 border-end pe-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4 class="m-0">Item Master</h4>
-                <button class="btn btn-sm btn-primary shadow-sm" onclick="MasterEngine.CreateNew()">
-                    <i class="bi bi-plus-lg"></i> New
-                </button>
-            </div>
-
-            <div class="list-group shadow-sm" id="masterListContainer" style="max-height: 70vh; overflow-y: auto;">
+<div class="animate-in container-fluid py-3">
+    <div class="row g-3">
+        <!-- Left List Sidebar -->
+        <div class="col-lg-4 border-end pe-lg-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom p-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-box-seam text-primary me-2"></i>Item Master Registry</h6>
+                        <small class="text-muted" id="masterItemCount">0 items</small>
+                    </div>
+                    <button class="btn btn-sm btn-primary fw-bold shadow-sm" onclick="MasterEngine.CreateNew()">
+                        <i class="bi bi-plus-lg me-1"></i> New Item
+                    </button>
                 </div>
+                <div class="p-2 border-bottom bg-light">
+                    <input type="text" id="masterItemSearch" class="form-control form-control-sm" placeholder="Filter items...">
+                </div>
+                <div class="list-group list-group-flush overflow-y-auto" id="masterListContainer" style="max-height: calc(100vh - 240px); min-height: 200px;">
+                    <div class="text-center py-5 text-muted small"><div class="spinner-border spinner-border-sm text-primary me-2"></div> Loading items...</div>
+                </div>
+            </div>
         </div>
 
-        <div class="col-lg-8 ps-4">
-            
-            <div id="emptyWorkspaceState" class="text-center text-muted py-5 mt-5">
-                <i class="bi bi-box-seam display-1 text-light"></i>
-                <h5 class="mt-3">No Item Selected</h5>
-                <p>Select an item from the list to view its details.</p>
+        <!-- Right Detail / Form Workspace -->
+        <div class="col-lg-8 ps-lg-3">
+            <div id="emptyWorkspaceState" class="card border-0 shadow-sm text-center text-muted py-5">
+                <i class="bi bi-box-seam display-1 text-muted opacity-25"></i>
+                <h5 class="mt-3 fw-bold text-dark">No Item Selected</h5>
+                <p class="small text-muted mb-0">Select an item from the registry list to view or edit details, or create a new item.</p>
             </div>
 
-            <div id="activeWorkspace" style="display: none;">
-                
-                <div id="masterControlPanel" class="mb-3"></div>
+            <div id="activeWorkspace" class="card border-0 shadow-sm overflow-hidden" style="display: none;">
+                <div id="masterControlPanel"></div>
 
-                <form id="staticMasterForm" class="bg-white p-4 rounded shadow-sm border">
-                    
+                <form id="staticMasterForm" class="p-4 bg-white" onsubmit="MasterEngine.HandleSubmit(event)">
                     <input type="hidden" id="active_record_key" name="record_key" value="">
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label text-muted small fw-bold">Item Code</label>
-                            <input type="text" class="form-control" name="item_code" required>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Item Code</label>
+                            <input type="text" class="form-control form-control-sm font-mono upper-case fw-bold" name="Stock_Code" required>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label text-muted small fw-bold">Item Name</label>
-                            <input type="text" class="form-control" name="item_name" required>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Item Name / Description</label>
+                            <input type="text" class="form-control form-control-sm" name="itemName" required>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label text-muted small fw-bold">Category</label>
-                            <select class="form-select" name="category" required>
-                                <option value="" disabled selected>Select...</option>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Category</label>
+                            <select class="form-select form-select-sm" name="category" required>
+                                <option value="" disabled selected>Select Category...</option>
                                 <option value="Finished Goods">Finished Goods</option>
                                 <option value="Raw Material">Raw Material</option>
                                 <option value="Services">Services</option>
+                                <option value="Trading Goods">Trading Goods</option>
                             </select>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label text-muted small fw-bold">Base Price (₹)</label>
-                            <input type="number" step="0.01" class="form-control" name="base_price">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">Unit of Measure (UOM)</label>
+                            <input type="text" class="form-control form-control-sm upper-case" name="unit" placeholder="e.g. PCS, KGS, MTR" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold">HSN / SAC Code</label>
+                            <input type="text" class="form-control form-control-sm font-mono" name="hsnCode" maxlength="8">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold">Standard Cost (₹)</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm font-mono" name="standardCost">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold">Selling Price (₹)</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm font-mono" name="sellingPrice">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold">GST Tax Rate (%)</label>
+                            <select class="form-select form-select-sm" name="ItemTax">
+                                <option value="0">0% (Nil / Exempt)</option>
+                                <option value="5">5%</option>
+                                <option value="12">12%</option>
+                                <option value="18" selected>18%</option>
+                                <option value="28">28%</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="mt-4 border-top pt-3 text-end">
-                        <button type="submit" id="masterSubmitBtn" class="btn btn-success" style="display: none;">
-                            <i class="bi bi-check-circle p-0"></i> Update Document
+                    <div class="mt-4 border-top pt-3 d-flex justify-content-between align-items-center">
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="masterDeleteBtn" style="display: none;" onclick="MasterEngine.DeleteCurrent()">
+                            <i class="bi bi-trash me-1"></i> Delete Record
                         </button>
+                        <div class="ms-auto d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="MasterEngine.Cancel()">Cancel</button>
+                            <button type="submit" id="masterSubmitBtn" class="btn btn-sm btn-primary fw-bold px-4" style="display: none;">
+                                <i class="bi bi-check2 me-1"></i> Save Record
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
-
         </div>
     </div>
 </div>
 
 <script>
 window.MasterEngine = {
-    // 1. LOCAL DATA MEMORY (No server fetches needed for viewing)
-    // When the page first loads, you would populate this ONCE from Firebase.
-    _localDB: {
-        "-NxA1b2": { item_code: "ITM-001", item_name: "Dell XPS 15", category: "Finished Goods", base_price: "150000" },
-        "-NxC3d4": { item_code: "RAW-099", item_name: "Steel Bearings", category: "Raw Material", base_price: "450" }
+    records: {},
+
+    async LoadList() {
+        const listContainer = document.getElementById('masterListContainer');
+        const countBadge = document.getElementById('masterItemCount');
+        if (!listContainer) return;
+
+        listContainer.innerHTML = '<div class="text-center py-4 text-muted small"><div class="spinner-border spinner-border-sm text-primary me-2"></div> Loading real master items...</div>';
+
+        try {
+            const res = await UniTaxCRUD.read('Stock');
+            this.records = {};
+            (res.data || []).forEach(item => {
+                this.records[item.ID] = item;
+            });
+
+            const keys = Object.keys(this.records);
+            if (countBadge) countBadge.innerText = `${keys.length} items`;
+
+            if (keys.length === 0) {
+                listContainer.innerHTML = `
+                <div class="text-center py-5 text-muted small">
+                    <i class="bi bi-box-seam d-block fs-3 mb-2 opacity-50"></i>
+                    No items registered in stock master.<br>Click "New Item" to create one.
+                </div>`;
+                return;
+            }
+
+            this.RenderList(this.records);
+        } catch (e) {
+            console.error("MasterEngine load error:", e);
+            listContainer.innerHTML = `<div class="p-3 text-danger text-center small">Failed to load stock master.</div>`;
+        }
     },
 
-    // 2. RENDER THE LEFT LIST
-    LoadList() {
+    RenderList(itemsMap) {
         const listContainer = document.getElementById('masterListContainer');
-        listContainer.innerHTML = '';
+        if (!listContainer) return;
 
-        if (Object.keys(this._localDB).length === 0) {
-            listContainer.innerHTML = `<div class="p-3 text-muted text-center small">No records found.</div>`;
+        const keys = Object.keys(itemsMap);
+        if (keys.length === 0) {
+            listContainer.innerHTML = '<div class="p-3 text-muted text-center small">No matching items found.</div>';
             return;
         }
 
-        Object.entries(this._localDB).forEach(([key, record]) => {
-            listContainer.innerHTML += `
-                <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-start py-3" 
-                        onclick="MasterEngine.ViewRecord('${key}')">
-                    <div class="ms-2 me-auto">
-                        <div class="fw-bold">${record.item_name}</div>
-                        <small class="text-muted">${record.item_code} | ₹${record.base_price}</small>
+        listContainer.innerHTML = keys.map(k => {
+            const item = itemsMap[k];
+            const name = item.itemName || 'Unnamed Item';
+            const code = item.Stock_Code || k;
+            const price = Utils.FormatINR(item.sellingPrice || item.standardCost || 0, true);
+            const cat = item.category || 'General';
+
+            return `
+            <button type="button" class="list-group-item list-group-item-action py-2 px-3 border-start-0 border-end-0" onclick="MasterEngine.ViewRecord('${k}')">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="text-truncate me-2">
+                        <div class="fw-bold text-dark small text-truncate">${Utils.EscapeHTML(name)}</div>
+                        <small class="text-muted font-mono" style="font-size: 11px;">${Utils.EscapeHTML(code)} | ${price}</small>
                     </div>
-                    <span class="badge bg-light text-dark border">${record.category}</span>
-                </button>
-            `;
-        });
+                    <span class="badge bg-light text-dark border small">${Utils.EscapeHTML(cat)}</span>
+                </div>
+            </button>`;
+        }).join('');
     },
 
-    // 3. VIEW RECORD (Instantly populates the static HTML form)
     ViewRecord(key) {
+        const item = this.records[key];
+        if (!item) return;
+
         document.getElementById('emptyWorkspaceState').style.display = 'none';
         document.getElementById('activeWorkspace').style.display = 'block';
-        
+
         const form = document.getElementById('staticMasterForm');
-        const controlPanel = document.getElementById('masterControlPanel');
-        
-        // A. Secure the key in memory to prevent duplicates!
         document.getElementById('active_record_key').value = key;
 
-        // B. Get data from local memory instantly
-        const data = this._localDB[key];
-        if (!data) return;
+        // Populate fields
+        form.querySelector('[name="Stock_Code"]').value = item.Stock_Code || '';
+        form.querySelector('[name="itemName"]').value = item.itemName || '';
+        form.querySelector('[name="category"]').value = item.category || 'Finished Goods';
+        form.querySelector('[name="unit"]').value = item.unit || 'PCS';
+        form.querySelector('[name="hsnCode"]').value = item.hsnCode || '';
+        form.querySelector('[name="standardCost"]').value = item.standardCost || '';
+        form.querySelector('[name="sellingPrice"]').value = item.sellingPrice || '';
+        form.querySelector('[name="ItemTax"]').value = item.ItemTax || '18';
 
-        // C. MAP DATA TO INPUTS automatically based on the 'name' attribute
-        Object.entries(data).forEach(([dbKey, value]) => {
-            const input = form.querySelector(`[name="${dbKey}"]`);
-            if (input) input.value = value;
-        });
+        // Lock form for view
+        this.SetFormLocked(true);
 
-        // D. LOCK THE FORM UI (Read-Only Mode)
-        form.querySelectorAll('input, select, textarea').forEach(el => {
-            if (el.type !== 'hidden') {
-                el.readOnly = true;
-                if(el.tagName === 'SELECT') el.style.pointerEvents = 'none';
-            }
-        });
-        document.getElementById('masterSubmitBtn').style.display = 'none';
-
-        // E. INJECT THE UNLOCK (EDIT) PANEL
-        controlPanel.innerHTML = `
-            <div class="alert alert-warning d-flex justify-content-between align-items-center m-0 py-2 shadow-sm border-warning">
-                <span><i class="bi bi-eye me-2"></i><strong>Viewing Record:</strong> ${data.item_name}</span>
-                <button type="button" class="btn btn-warning btn-sm fw-bold shadow-sm" onclick="MasterEngine.UnlockEdit()">
-                    <i class="bi bi-pencil-square me-1"></i> Edit
+        document.getElementById('masterControlPanel').innerHTML = `
+            <div class="bg-light p-3 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-primary-subtle text-primary border me-2">Viewing</span>
+                    <strong class="text-dark">${Utils.EscapeHTML(item.itemName || item.Stock_Code)}</strong>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="MasterEngine.UnlockEdit()">
+                    <i class="bi bi-pencil me-1"></i> Edit Record
                 </button>
             </div>
         `;
 
-        // F. Ghost-Buster: Bind the submit listener cleanly
-        this._bindSubmit();
+        document.getElementById('masterSubmitBtn').style.display = 'none';
+        document.getElementById('masterDeleteBtn').style.display = 'inline-block';
     },
 
-    // 4. UNLOCK FOR EDITING
     UnlockEdit() {
-        const form = document.getElementById('staticMasterForm');
-        
-        // Unlock all fields
-        form.querySelectorAll('input, select, textarea').forEach(el => {
-            el.readOnly = false;
-            if(el.tagName === 'SELECT') el.style.pointerEvents = 'auto';
-        });
-
-        // Update Control Panel UI
+        this.SetFormLocked(false);
         document.getElementById('masterControlPanel').innerHTML = `
-            <div class="alert alert-success d-flex justify-content-between align-items-center m-0 py-2 shadow-sm border-success">
-                <span><i class="bi bi-unlock-fill me-2"></i><strong>Editing Unlocked.</strong> Make your changes below.</span>
+            <div class="bg-warning-subtle p-3 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="badge bg-warning text-dark me-2">Editing</span>
+                    <strong class="text-dark">Edit record details below and click Save.</strong>
+                </div>
             </div>
         `;
-
-        // Reveal the Save Button
         document.getElementById('masterSubmitBtn').style.display = 'inline-block';
+        document.getElementById('masterSubmitBtn').innerHTML = '<i class="bi bi-check2 me-1"></i> Update Record';
     },
 
-    // 5. CREATE NEW RECORD
     CreateNew() {
         document.getElementById('emptyWorkspaceState').style.display = 'none';
         document.getElementById('activeWorkspace').style.display = 'block';
-        
-        const form = document.getElementById('staticMasterForm');
-        
-        // Wipe the hidden key so the system knows it's brand new
-        document.getElementById('active_record_key').value = '';
 
-        // Clear all inputs and unlock them
-        form.querySelectorAll('input, select, textarea').forEach(el => {
-            if (el.type !== 'hidden') {
-                el.value = '';
-                el.readOnly = false;
-                if(el.tagName === 'SELECT') el.style.pointerEvents = 'auto';
-            }
-        });
+        const form = document.getElementById('staticMasterForm');
+        document.getElementById('active_record_key').value = '';
+        form.reset();
+
+        this.SetFormLocked(false);
 
         document.getElementById('masterControlPanel').innerHTML = `
-            <div class="alert alert-primary d-flex justify-content-between align-items-center m-0 py-2 shadow-sm border-primary">
-                <span><i class="bi bi-plus-circle me-2"></i><strong>Creating New Record</strong></span>
+            <div class="bg-primary-subtle p-3 border-bottom">
+                <span class="badge bg-primary text-white me-2">New Item</span>
+                <strong class="text-primary">Create Brand New Stock Item</strong>
             </div>
         `;
 
-        const btn = document.getElementById('masterSubmitBtn');
-        btn.style.display = 'inline-block';
-        btn.innerHTML = '<i class="bi bi-plus-lg p-0"></i> Save New Record';
-        
-        this._bindSubmit();
+        document.getElementById('masterSubmitBtn').style.display = 'inline-block';
+        document.getElementById('masterSubmitBtn').innerHTML = '<i class="bi bi-plus-lg me-1"></i> Save New Item';
+        document.getElementById('masterDeleteBtn').style.display = 'none';
     },
 
-    // 6. GHOST-BUSTER BINDING
-    _bindSubmit() {
+    Cancel() {
+        document.getElementById('activeWorkspace').style.display = 'none';
+        document.getElementById('emptyWorkspaceState').style.display = 'block';
+    },
+
+    SetFormLocked(locked) {
         const form = document.getElementById('staticMasterForm');
-        form.removeAttribute('onsubmit');
-        
-        const oldBtn = document.getElementById('masterSubmitBtn');
-        const cleanBtn = oldBtn.cloneNode(true);
-        oldBtn.parentNode.replaceChild(cleanBtn, oldBtn);
-        
-        form.removeEventListener('submit', this.HandleSubmit); // Remove if exists
-        form.addEventListener('submit', this.HandleSubmit);
+        form.querySelectorAll('input, select').forEach(el => {
+            if (el.type !== 'hidden') {
+                el.readOnly = locked;
+                if (el.tagName === 'SELECT') el.disabled = locked;
+            }
+        });
     },
 
-    // 7. HANDLE SAVE (No Duplicates!)
     async HandleSubmit(e) {
         e.preventDefault();
-        e.stopImmediatePropagation();
-
-        const form = e.target;
         const activeKey = document.getElementById('active_record_key').value;
         const btn = document.getElementById('masterSubmitBtn');
+        const form = e.target;
 
-        // Extract form data
-        const formDataObj = new FormData(form);
-        const payload = Object.fromEntries(formDataObj.entries());
-        delete payload.record_key; // Don't save the hidden key to the DB payload
+        const formData = new FormData(form);
+        const payload = Object.fromEntries(formData.entries());
+        delete payload.record_key;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
 
         try {
-            const origHtml = btn.innerHTML;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
-            btn.disabled = true;
-
             if (activeKey) {
-                // UPDATE EXISTING RECORD
-                console.log(`Updating Record at Key: ${activeKey}`, payload);
-                
-                // 1. Update your local memory instantly so the UI reflects it
-                MasterEngine._localDB[activeKey] = payload;
-                
-                // 2. Push to Firebase quietly in the background
-                // await API.DB.ref(`YourPath/Items/${activeKey}`).update(payload);
-                
-                if(App && App.UI) App.UI.Notify('Success', 'Record Updated', 'success');
+                await UniTaxCRUD.updateOne('Stock', activeKey, payload);
+                App.UI.Notify('Success', 'Item updated successfully!', 'success');
             } else {
-                // CREATE NEW RECORD
-                console.log("Creating Brand New Record", payload);
-                
-                // 1. Generate a mock key for local testing (Firebase would do this normally)
-                const newKey = "-Nx" + Math.random().toString(36).substr(2, 6);
-                
-                // 2. Update local memory
-                MasterEngine._localDB[newKey] = payload;
-
-                // 3. Push to Firebase
-                // await API.DB.ref(`YourPath/Items`).push(payload);
-                
-                if(App && App.UI) App.UI.Notify('Success', 'Record Created', 'success');
-                
-                // Lock the key in so if they hit save again, it updates instead of duplicates
-                document.getElementById('active_record_key').value = newKey;
+                const res = await UniTaxCRUD.createOne('Stock', payload);
+                App.UI.Notify('Success', 'New stock item created successfully!', 'success');
+                document.getElementById('active_record_key').value = res.id;
             }
 
-            // Refresh the left list instantly and lock the form back to view mode
-            MasterEngine.LoadList();
-            MasterEngine.ViewRecord(activeKey || newKey);
-
-        } catch (error) {
-            console.error("Save Error:", error);
+            await this.LoadList();
+            this.ViewRecord(activeKey || document.getElementById('active_record_key').value);
+        } catch (err) {
+            console.error("Save error:", err);
+            App.UI.Notify('Error', err.message || 'Failed to save item.', 'danger');
         } finally {
-            if(btn) btn.disabled = false;
+            btn.disabled = false;
+        }
+    },
+
+    async DeleteCurrent() {
+        const activeKey = document.getElementById('active_record_key').value;
+        if (!activeKey) return;
+
+        if (confirm("Are you sure you want to delete this stock item?")) {
+            try {
+                await UniTaxCRUD.deleteOne('Stock', activeKey);
+                App.UI.Notify('Deleted', 'Stock item deleted successfully.', 'warning');
+                this.Cancel();
+                this.LoadList();
+            } catch (err) {
+                App.UI.Notify('Error', err.message || 'Deletion failed.', 'danger');
+            }
         }
     }
 };
 
-// Initialize the list when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    MasterEngine.LoadList();
-});
+// Filter input listener
+document.getElementById('masterItemSearch')?.addEventListener('input', Utils.Debounce((e) => {
+    const q = e.target.value.toLowerCase().trim();
+    if (!q) {
+        MasterEngine.RenderList(MasterEngine.records);
+        return;
+    }
+    const filtered = {};
+    Object.entries(MasterEngine.records).forEach(([k, item]) => {
+        if ((item.itemName && item.itemName.toLowerCase().includes(q)) ||
+            (item.Stock_Code && item.Stock_Code.toLowerCase().includes(q)) ||
+            (item.category && item.category.toLowerCase().includes(q))) {
+            filtered[k] = item;
+        }
+    });
+    MasterEngine.RenderList(filtered);
+}, 200));
+
+MasterEngine.LoadList();
 </script>

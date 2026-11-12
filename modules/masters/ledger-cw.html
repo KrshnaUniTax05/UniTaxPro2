@@ -7,7 +7,12 @@
                         <h5 class="fw-bold mb-0">General Ledger Creation</h5>
                         <p class="text-muted small mb-0">Add accounts to Chart of Accounts (COA)</p>
                     </div>
-                    <button type="submit" class="btn btn-success btn-sm px-3 shadow-sm fw-bold"><i class="bi bi-check2 me-1"></i></button>
+                    <div class="d-flex gap-2 align-items-center">
+                    <button type="button" class="btn btn-outline-secondary btn-sm fw-semibold" onclick="UniTaxRouter.Navigate('masters/ledger-list')">
+                        <i class="bi bi-arrow-left me-1"></i> Ledgers Directory
+                    </button>
+                    <button type="submit" class="btn btn-success btn-sm px-3 shadow-sm fw-bold"><i class="bi bi-check2 me-1"></i> Save Ledger</button>
+                </div>
                 </div>
 
                 <div class="p-4">
@@ -28,7 +33,23 @@
                             <label class="form-label small fw-bold">Ledger Group</label>
                             <input type="text" name="ledgerType" list="led-groups" class="form-control form-control-sm" required>
                             <datalist id="led-groups">
-                                <option value="Bank Accounts"><option value="Sundry Debtors"><option value="Sundry Creditors"><option value="Direct Incomes"><option value="Fixed Assets">
+                                <option value="Capital Account">
+                                <option value="Reserves & Surplus">
+                                <option value="Bank Accounts">
+                                <option value="Cash-in-Hand">
+                                <option value="Sundry Debtors">
+                                <option value="Sundry Creditors">
+                                <option value="Fixed Assets">
+                                <option value="Current Assets">
+                                <option value="Current Liabilities">
+                                <option value="Duties & Taxes">
+                                <option value="Secured Loans">
+                                <option value="Unsecured Loans">
+                                <option value="Investments">
+                                <option value="Direct Incomes">
+                                <option value="Indirect Incomes">
+                                <option value="Direct Expenses">
+                                <option value="Indirect Expenses">
                             </datalist>
                         </div>
                         <div class="col-md-3">
@@ -71,13 +92,20 @@
                         <div class="col-md-12"><label class="form-label small fw-bold">Website</label><input type="url" name="website" class="form-control form-control-sm"></div>
                     </div>
                     <div class="bg-light p-3 rounded-3 my-4">
-                        <h6 class="fw-bold text-dark small text-uppercase mb-3">Opening Balances</h6>
+                        <h6 class="fw-bold text-dark small text-uppercase mb-1">Opening Balances & Report Integration</h6>
+                        <p class="text-muted small mb-3">Opening amounts and nature auto-populate Balance Sheet, P&L, Trial Balance, and GL Statements.</p>
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <input type="number" name="openingBalance" class="form-control">
+                                <label class="form-label small fw-bold">Opening Amount (₹)</label>
+                                <input type="number" step="0.01" name="openingBalance" id="ledOpeningBal" class="form-control form-control-sm font-mono" placeholder="0.00" value="0.00">
                             </div>
-                            <!-- <div class="col-md-6"></div> -->
-                            
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Balance Nature</label>
+                                <select name="balanceType" id="ledBalanceType" class="form-select form-select-sm fw-bold">
+                                    <option value="Dr" selected>Debit (Dr) - Asset / Expense</option>
+                                    <option value="Cr">Credit (Cr) - Liability / Capital / Income</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div id="dynamicfeilds" class="mt-4"></div>
@@ -209,7 +237,17 @@ function insertDynamicFieldsAboveCommunication(fieldsHTML) {
 
 // Main function to handle Ledger Group change
 function handleLedgerGroupChange(event) {
-    const selectedGroup = event.target.value;
+    const selectedGroup = (event.target.value || '').trim();
+    const groupLower = selectedGroup.toLowerCase();
+
+    // Auto-sync Ledger Nature & Report Balance Type
+    const natureSel = document.querySelector('select[name="ledgerNature"]');
+    const balTypeSel = document.getElementById('ledBalanceType');
+    const creditKeywords = ['capital', 'reserve', 'creditor', 'duty', 'tax', 'liability', 'loan', 'income', 'sale'];
+    const isCredit = creditKeywords.some(k => groupLower.includes(k));
+
+    if (natureSel) natureSel.value = isCredit ? 'Credit' : 'Debit';
+    if (balTypeSel) balTypeSel.value = isCredit ? 'Cr' : 'Dr';
     
     // Get configuration for selected group
     let fieldsConfig = dynamicFieldsConfig[selectedGroup];

@@ -1,223 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{Document_title}} - {{doc_no}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-    /* --- GLOBAL & PRINT RESETS --- */
-    :root {
-        --brand-color: #0b3d91;
-        --brand-light: #f4f7fa;
-        --text-dark: #111111;
-        --text-muted: #555555;
-        --border-color: #dce4ec;
-    }
+    
+    *, *::before, *::after { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    html, body { margin: 0; padding: 0; background: #ffffff; color: #0f172a; font-family: 'Inter', sans-serif; font-size: 8pt; line-height: 1.35; }
+    .action-bar { position: fixed; top: 0; left: 0; right: 0; background: #0f172a; color: #ffffff; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; }
+    .btn-print { background: #991b1b; color: #ffffff; border: none; padding: 6px 14px; border-radius: 4px; font-weight: 700; cursor: pointer; }
+    
+    .font-mono { font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .fw-bold { font-weight: 700; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .nowrap { white-space: nowrap; }
 
-    body, html {
-        margin: 0; padding: 0;
-        font-family: 'Segoe UI', Arial, sans-serif;
-        /* color: var(--text-dark); background: #e9ecef;  */
-        font-size: 10pt; line-height: 1.5;
-    }
+    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; border-bottom: 2px solid #991b1b; padding-bottom: 6px; }
+    .company-name { font-size: 13pt; font-weight: 800; color: #0f172a; margin: 0 0 2px 0; text-transform: uppercase; }
+    .company-subtext { font-size: 7.5pt; color: #334155; line-height: 1.35; }
+    .doc-main-title { font-size: 14pt; font-weight: 800; color: #991b1b; text-align: right; text-transform: uppercase; }
+    .doc-sub-title { font-size: 7pt; font-weight: 600; color: #64748b; text-align: right; text-transform: uppercase; }
 
-    /* --- ACTION BAR (Screen Only) --- */
-    .action-bar {
-        background: #333;
-        padding: 15px 30px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        color: white;
-        position: sticky;
-        top: 0;
-        z-index: 1000;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    .meta-table { width: 100%; border-collapse: collapse; background: #f8fafc; border: 1px solid #cbd5e1; margin-bottom: 8px; }
+    .meta-table td { padding: 5px 8px; font-size: 7.5pt; border-right: 1px solid #e2e8f0; }
+    .meta-table td:last-child { border-right: none; }
+    .meta-label { font-size: 6.5pt; color: #64748b; text-transform: uppercase; font-weight: 700; display: block; }
+    .meta-val { font-size: 8pt; font-weight: 700; color: #0f172a; }
+
+    .parties-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; border: 1px solid #cbd5e1; }
+    .party-cell { width: 50%; padding: 6px 8px; vertical-align: top; }
+    .party-cell:first-child { border-right: 1px solid #cbd5e1; }
+    .party-heading { font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #991b1b; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 3px; }
+    .party-name { font-size: 9pt; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+    .party-line { font-size: 7.5pt; color: #334155; line-height: 1.35; }
+
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; border: 1px solid #cbd5e1; }
+    .items-table th { background: #f1f5f9; color: #1e293b; font-weight: 700; font-size: 7pt; text-transform: uppercase; padding: 5px 6px; border: 1px solid #cbd5e1; }
+    .items-table td { padding: 5px 8px; border: 1px solid #cbd5e1; font-size: 7.5pt; }
+
+    .signature-table { width: 100%; border-collapse: collapse; margin-top: 10px; page-break-inside: avoid; border-top: 1px solid #cbd5e1; }
+    .sig-box { width: 33.33%; text-align: center; vertical-align: bottom; padding: 24px 6px 4px 6px; }
+    .sig-line { border-top: 1px dashed #94a3b8; margin: 0 10px 4px 10px; }
+    .sig-role { font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #334155; }
+
+
+    .signature-table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 14px; page-break-inside: avoid; }
+    .signature-table td { vertical-align: bottom; padding: 0; }
+    .sig-block { display: inline-block; width: 190px; text-align: center; }
+    .sig-org { font-size: 7pt; font-weight: 700; color: #0f172a; margin-bottom: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .sig-space { height: 32px; }
+    .sig-line { border-top: 1px solid #475569; width: 100%; margin: 0 auto 4px auto; }
+    .sig-role { font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #1e293b; letter-spacing: 0.3px; }
+    .sig-note { font-size: 6pt; color: #64748b; margin-top: 1px; }
+    .nowrap { white-space: nowrap !important; }
+
+
+    
+    *, *::before, *::after { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 210mm;
+        background: #ffffff;
+        color: #0f172a;
+        font-family: 'Inter', sans-serif;
+        font-size: 8pt;
+        line-height: 1.35;
     }
     
-    .action-bar button {
-        background: #4caf50; color: white; border: none; padding: 10px 20px;
-        font-size: 11pt; font-weight: bold; border-radius: 4px; cursor: pointer;
-        display: flex; align-items: center; gap: 8px;
-    }
     
-    .action-bar button:hover { background: #43a047; }
-
-    /* --- A4 SHEET PREVIEW (Screen) --- */
-    .print-document {
-        background: white; width: 210mm; min-height: 297mm;
-        margin: 30px auto; padding: 12mm 15mm;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.1); box-sizing: border-box;
-    }
-
-    /* --- PRINT SPECIFIC RULES --- */
-    @media print {
-        @page { margin: 10mm; size: A4 portrait; }
-        body { background: white; }
-        .action-bar { display: none !important; } /* Hides the print button on paper */
-        .print-document { margin: 0; padding: 0; box-shadow: none; width: 100%; min-height: auto; }
-        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    }
-
-    /* --- HEADER SECTION --- */
-    .brand-header {
-        display: flex; justify-content: space-between; align-items: flex-start;
-        border-bottom: 4px solid var(--brand-color); padding-bottom: 20px; margin-bottom: 25px;
-    }
-    .company-details h1 {
-        margin: 0 0 5px 0; font-size: 18pt; font-weight: 800;
-        color: var(--brand-color); text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .company-details p { margin: 0; font-size: 9pt; color: var(--text-muted); }
-    .company-details .gstin { margin-top: 5px; font-weight: bold; color: var(--text-dark); }
-    .doc-title h2 { margin: 0; font-size: 20pt; font-weight: 800; color: var(--brand-color); text-transform: uppercase; }
-
-    /* --- THREE COLUMN GRID --- */
-    .meta-grid {
-        display: flex; border: 1px solid var(--border-color); border-radius: 4px;
-        margin-bottom: 25px; background: var(--brand-light); overflow: hidden;
-    }
-
-    .meta-box { flex: 1; padding: 12px 15px;     display: grid;}
-    .meta-box.border-right { border-right: 1px solid var(--border-color); }
-
-    .meta-box .section-title {
-        font-size: 8pt; color: var(--brand-color); text-transform: uppercase; 
-        font-weight: 800; margin-bottom: 8px; letter-spacing: 0.5px;
-    }
-
-    .party-name { font-size: 11pt; font-weight: 800; color: var(--text-dark); margin: 0 0 8px 0; text-transform: uppercase; line-height: 1.2;}
     
-    .info-table { border-collapse: collapse; width: 100%; font-size: 8.5pt; }
-    .info-table td { padding: 3px 0; vertical-align: top; }
-    .info-table td.label { color: var(--text-muted);  font-weight: 600; }
-    .info-table td.val { color: var(--text-dark); font-weight: 500; }
-
-    .highlight-total {
-        background: var(--brand-color); color: white; padding: 10px; border-radius: 4px;
-        margin-top: 10px; display: flex; flex-direction: column; align-items: flex-start;
-    }
-    .highlight-total span { font-size: 8pt; text-transform: uppercase; font-weight: 600; opacity: 0.9; }
-    .highlight-total strong { font-size: 14pt; font-weight: 800; margin-top: 2px;}
-
-    /* --- DETAILS TABLE --- */
-    .voucher-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-    .voucher-table th { background: var(--brand-color); color: white; font-weight: 600; font-size: 9pt; text-transform: uppercase; padding: 10px 12px; text-align: left; }
-    .voucher-table td { padding: 12px; font-size: 10pt;  vertical-align: top; }
-    .voucher-table tbody tr { height: 120px; } 
-    .voucher-table tfoot td { font-weight: 800; font-size: 11pt; color: var(--brand-color); padding: 12px; border-top: 2px solid var(--brand-color); border-bottom: 2px solid var(--brand-color); }
-
-    .amount-words { font-size: 10pt; padding: 12px 15px; border-left: 4px solid var(--brand-color); background: #ffffff; border: 1px solid var(--border-color); margin-bottom: 50px; }
-    .amount-words strong { color: var(--brand-color); text-transform: uppercase; font-size: 8pt; display: block; margin-bottom: 4px;}
-
-    .signatures { display: flex; justify-content: space-between; padding: 0 30px; margin-top: auto; }
-    .sig-box { text-align: center; width: 180px; }
-    .sig-box .line { border-top: 1px solid var(--text-dark); margin-bottom: 8px; }
-    .sig-box p { margin: 0; font-size: 8pt; font-weight: bold; color: var(--text-muted); text-transform: uppercase; }
-
-    .footer-note { margin-top: 40px; text-align: center; font-size: 8pt; color: var(--text-muted); border-top: 1px dashed var(--border-color); padding-top: 15px; }
-</style>
-
-<div class="action-bar no-print">
-    <div style="font-size: 14pt; font-weight: bold;">Document Preview: {{doc_no}}</div>
-    <button onclick="window.print()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z"/><path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z"/></svg>
-        Print / Save PDF
-    </button>
-</div>
-
-<div class="print-document">
-    
-    <div class="brand-header">
-        <div class="company-details">
-            <h1>{{companyName}}</h1>
-            <p>{{companyAddress}}</p>
-            <p class="gstin">GSTIN: {{gstin}}</p>
-        </div>
-        <div class="doc-title">
-            <h2>Payment VOUCHER</h2>
-        </div>
-    </div>
-
-    <div class="meta-grid">
+        html, body {
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+        }
         
-        <div class="meta-box border-right">
-            <div class="section-title">Paid Through</div>
-            <h3 class="party-name">{{ledger_name}}</h3>
-            <table class="info-table">
-                <tr><td class="label">GL Code:</td><td class="val">{{ledger_code}}</td></tr>
-                <tr><td class="label">Account Number:</td><td class="val">{{ledger_AccountNumber}}</td></tr>
-                <tr><td class="label">IFSC Code:</td><td class="val">{{ledger_IFSC}}</td></tr>
-                <tr><td class="label">Branch:</td><td class="val">{{ledger_Branch}}</td></tr>
-                <tr><td class="label">Swift Code:</td><td class="val">{{ledger_swift}}</td></tr>
-                <!-- <tr><td class="label">Address:</td><td class="val">{{customer_address}}</td></tr> -->
-                <tr><td class="label">GSTIN:</td><td class="val">{{Ledger_gst}}</td></tr>
-            </table>
-        </div>
-
-        <!-- <div class="meta-box border-right">
-            <div class="section-title">Deposited Into (Account)</div>
-            <h3 class="party-name">{{bank_name}}</h3>
-            <table class="info-table">
-                <tr><td class="label">GL Code:</td><td class="val">{{bank_code}}</td></tr>
-                <tr><td class="label">GSTIN:</td><td class="val">{{bank_gst}}</td></tr>
-                <tr><td class="label">State:</td><td class="val">{{bank_state}}</td></tr>
-            </table>
-        </div> -->
-
-        <div class="meta-box">
-            <div class="section-title">Voucher Details</div>
-            <table class="info-table">
-                <tr><td class="label">Doc No:</td><td class="val" style="font-weight: 800; color: var(--brand-color);">{{doc_no}}</td></tr>
-                <tr><td class="label">Instrument Date:</td><td class="val">{{Instdate}}</td></tr>
-                <tr><td class="label">Value Date:</td><td class="val">{{Valuedate}}</td></tr>
-            </table>
-            
-            <div class="highlight-total">
-                <span>Total Paid</span>
-                <strong>₹ {{grandTotal}}</strong>
-            </div>
-        </div>
-    </div>
-
-    <table class="voucher-table">
-            <thead>
-                <tr>
-                    <th width="8%" class="text-center">S.No</th>
-                    <th width="65%">Particulars / Narration</th>
-                    <th width="27%" style="text-align: right;">Amount (₹)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{items_html}}
-                
-                <tr>
-                    <td colspan="3" style="padding-top: 15px; padding-bottom: 15px;">
-                        <strong>Header Narration / Remarks:</strong><br>
-                        <span style="color: #555; white-space: pre-wrap;">{{narration}}</span>
-                    </td>
-                </tr>
-            </tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="2" style="text-align: right;">TOTAL AMOUNT</td>
-                    <td style="text-align: right;">₹ {{grandTotal}}</td>
-                </tr>
-            </tfoot>
-        </table>
-
-    <div class="amount-words">
-        <strong>Amount (in words)</strong> 
-        Indian Rupees {{amountInWords}} Only.
-    </div>
-
-    <div class="signatures">
-        <div class="sig-box">
-            <div class="line"></div>
-            <p>Prepared By</p>
-        </div>
-        <div class="sig-box">
-            <div class="line"></div>
-            <p>Authorized Signatory</p>
-        </div>
-    </div>
-
-    <div class="footer-note">
-        * This is a computer generated payment voucher. Subject to realization of cheque/draft/online transfer.
-    </div>
-
+        
+    }
+@page {
+        size: A4 portrait;
+        margin: 0;
+    }
+    *, *::before, *::after {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 210mm;
+        background: #ffffff;
+        color: #0f172a;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-size: 8pt;
+        line-height: 1.35;
+    }
+        .print-container {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0 auto;
+        padding: 8mm 12mm;
+        box-sizing: border-box;
+        background: #ffffff;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .doc-page {
+        width: 100%;
+        min-height: calc(297mm - 16mm);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        position: relative;
+    }
+    .doc-header {
+        flex-shrink: 0;
+    }
+    .doc-body {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        min-height: 70mm;
+    }
+    .doc-footer {
+        flex-shrink: 0;
+        margin-top: auto;
+    }
+    .signature-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        margin-top: 14px;
+        page-break-inside: avoid;
+    }
+    .signature-table td {
+        vertical-align: bottom;
+        padding: 0;
+    }
+    .sig-block {
+        display: inline-block;
+        width: 190px;
+        max-width: 100%;
+        text-align: center;
+    }
+    .sig-org {
+        font-size: 7pt;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 24px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+    @media print {
+        .action-bar { display: none !important; }
+        html, body {
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+        }
+            .print-container {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0 auto;
+        padding: 8mm 12mm;
+        box-sizing: border-box;
+        background: #ffffff;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .doc-page {
+        width: 100%;
+        min-height: calc(297mm - 16mm);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        position: relative;
+    }
+    .doc-header {
+        flex-shrink: 0;
+    }
+    .doc-body {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        min-height: 70mm;
+    }
+    .doc-footer {
+        flex-shrink: 0;
+        margin-top: auto;
+    }
+    }
+</style>
+</head>
+<body>
+<div class="action-bar">
+    <div><strong>UniTax ERP</strong> &nbsp;|&nbsp; Payment Voucher — {{doc_no}}</div>
+    <button class="btn-print" onclick="window.print()">Print / Save PDF</button>
 </div>
+
+<div class="print-container">
+    <div class="doc-page">
+    <div class="doc-header">
+    <table class="header-table">
+        <tr>
+            <td style="width: 60%; vertical-align: top;">
+                <div class="company-name">{{companyName}}</div>
+                <div class="company-subtext">
+                    {{companyAddress}}<br>
+                    <strong>GSTIN:</strong> {{gstin}} | <strong>CIN:</strong> L70100DL2000PLC104787<br>
+                    <strong>Email:</strong> {{companyEmail}} | <strong>Phone:</strong> {{companyPhone}}
+                </div>
+            </td>
+            <td>
+                <div class="doc-main-title">{{Document_title}}</div>
+                <div class="doc-sub-title">Disbursement & Outflow Authorization</div>
+            </td>
+        </tr>
+    </table>
+
+    <table class="meta-table">
+        <tr>
+            <td style="width: 25%;"><span class="meta-label">Payment Voucher No</span><span class="meta-val font-mono">{{doc_no}}</span></td>
+            <td style="width: 25%;"><span class="meta-label">Voucher Date</span><span class="meta-val font-mono nowrap">{{date}}</span></td>
+            <td style="width: 25%;"><span class="meta-label">Disbursement Mode</span><span class="meta-val">Bank Transfer</span></td>
+            <td style="width: 25%;"><span class="meta-label">Instrument / Ref</span><span class="meta-val font-mono">{{ref_no}}</span></td>
+        </tr>
+    </table>
+
+    <table class="parties-table">
+        <tr>
+            <td class="party-cell">
+                <div class="party-heading">Paid To (Beneficiary)</div>
+                <div class="party-name">{{customer_name}}</div>
+                <div class="party-line">Vendor / Payee Settlement</div>
+            </td>
+            <td class="party-cell">
+                <div class="party-heading">Paid From (Disbursement Account)</div>
+                <div class="party-name">{{bank_name}}</div>
+                <div class="party-line">
+                    <strong>A/C No:</strong> <span class="font-mono">{{bank_ac}}</span> | <strong>IFSC:</strong> <span class="font-mono">{{bank_ifsc}}</span>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    </div><!-- end doc-header -->
+    <div class="doc-body">
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 6%;">#</th>
+                <th style="width: 69%;">Account Head / Particulars / Purpose of Disbursement</th>
+                <th style="width: 25%; text-align: right;">Amount Paid (₹)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{items_html}}
+        </tbody>
+        <tfoot>
+            <tr style="background: #f1f5f9; font-weight: bold;">
+                <td colspan="2" class="text-right" style="padding: 6px 8px; text-transform: uppercase;">Total Disbursement:</td>
+                <td class="text-right font-mono" style="padding: 6px 8px; font-size: 9pt; color: #991b1b;">₹ {{grandTotal}}</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 3px; padding: 5px 8px; margin-bottom: 8px;">
+        <div style="font-size: 6.5pt; font-weight: 700; text-transform: uppercase; color: #64748b;">Amount in Words:</div>
+        <div style="font-size: 8pt; font-weight: 700; color: #0f172a; font-style: italic;">{{amountInWords}}</div>
+    </div>
+
+    <div style="font-size: 7pt; color: #475569; padding: 6px 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 3px; margin-bottom: 8px;">
+        <strong>Narration / Accounting Memo:</strong> {{narration}}
+    </div>
+
+    </div><!-- end doc-body -->
+    <div class="doc-footer">
+    <table class="signature-table">
+        <tr>
+            <td style="width: 33.33%; text-align: left;">
+                <div class="sig-block">
+                    <div class="sig-space"></div>
+                    <div class="sig-line"></div>
+                    <div class="sig-role">Prepared By (Accounts)</div>
+                </div>
+            </td>
+            <td style="width: 33.33%; text-align: center;">
+                <div class="sig-block">
+                    <div class="sig-space"></div>
+                    <div class="sig-line"></div>
+                    <div class="sig-role">Checked & Verified By</div>
+                </div>
+            </td>
+            <td style="width: 33.33%; text-align: right;">
+                <div class="sig-block" style="float: right;">
+                    <div class="sig-org">For <strong>{{companyName}}</strong></div>
+                    <div class="sig-line"></div>
+                    <div class="sig-role">Approved By (CFO / MD)</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    </div><!-- end doc-footer -->
+</div>
+</div>
+</body>
+</html>
